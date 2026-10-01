@@ -3,21 +3,31 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // Create a **Promise Pool directly**
-export const pool = mysql
-  .createPool({
-    host: process.env.DB_HOST || "localhost",
-    user: process.env.DB_USER || "root",
-    password: process.env.DB_PASS || "",
-    database: process.env.DB_NAME || "gym_db",
-    port: parseInt(process.env.DB_PORT) || 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 10000,
-    ssl: process.env.DB_HOST?.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
-  })
-  .promise();
+const poolConfig = process.env.DATABASE_URL
+  ? {
+      uri: process.env.DATABASE_URL,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+      ssl: process.env.DATABASE_URL.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
+    }
+  : {
+      host: process.env.DB_HOST || "localhost",
+      user: process.env.DB_USER || process.env.DB_USERNAME || "root",
+      password: process.env.DB_PASS || process.env.DB_PASSWORD || "",
+      database: process.env.DB_NAME || process.env.DB_DATABASE || "gym_db",
+      port: parseInt(process.env.DB_PORT) || 3306,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+      ssl: process.env.DB_HOST?.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
+    };
+
+export const pool = mysql.createPool(poolConfig).promise();
 
 // Test MySQL connection — release immediately, run seeding in background
 pool

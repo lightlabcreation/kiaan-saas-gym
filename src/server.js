@@ -93,8 +93,8 @@ initBackupCronJob();
     console.error("Equipment table setup error:", e.message);
   }
     try {
-      const server = app.listen(ENV.port, () => {
-        console.log(`Server running on http://localhost:${ENV.port}`);
+      const server = app.listen(ENV.port, "0.0.0.0", () => {
+        console.log(`Server running on http://0.0.0.0:${ENV.port}`);
       });
       server.on('error', (err) => {
         if (err.code === 'EADDRINUSE') {

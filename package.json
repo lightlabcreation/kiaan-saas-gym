@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
+    "postinstall": "prisma generate",
     "start": "node trial_migration.js && node src/server.js",
     "dev": "nodemon src/server.js",
     "docs": "node generate_docs.js"
@@ -13,6 +14,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@prisma/client": "^5.22.0",
     "archiver": "^8.0.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.8.0",
@@ -31,6 +33,7 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.11",
     "pdfkit": "^0.17.2",
+    "prisma": "^5.22.0",
     "qrcode": "^1.5.4",
     "razorpay": "^2.9.6",
     "socket.io": "^4.8.3",
@@ -38,8 +41,6 @@
     "yauzl": "^3.4.0"
   },
   "devDependencies": {
-    "@prisma/client": "^5.22.0",
-    "nodemon": "^2.0.22",
-    "prisma": "^5.22.0"
+    "nodemon": "^2.0.22"
   }
 }
