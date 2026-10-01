@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "postinstall": "prisma generate",
-    "start": "node trial_migration.js && node src/server.js",
+    "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "docs": "node generate_docs.js"
   },

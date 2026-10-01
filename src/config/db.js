@@ -3,29 +3,41 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // Create a **Promise Pool directly**
-const poolConfig = process.env.DATABASE_URL
-  ? {
-      uri: process.env.DATABASE_URL,
+let poolConfig;
+if (process.env.DATABASE_URL) {
+  try {
+    const parsed = new URL(process.env.DATABASE_URL);
+    poolConfig = {
+      host: parsed.hostname,
+      port: parseInt(parsed.port) || 3306,
+      user: decodeURIComponent(parsed.username || "root"),
+      password: decodeURIComponent(parsed.password || ""),
+      database: parsed.pathname.replace(/^\//, "") || "gym_saas",
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000,
       ssl: process.env.DATABASE_URL.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
-    }
-  : {
-      host: process.env.DB_HOST || "localhost",
-      user: process.env.DB_USER || process.env.DB_USERNAME || "root",
-      password: process.env.DB_PASS || process.env.DB_PASSWORD || "",
-      database: process.env.DB_NAME || process.env.DB_DATABASE || "gym_db",
-      port: parseInt(process.env.DB_PORT) || 3306,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-      enableKeepAlive: true,
-      keepAliveInitialDelay: 10000,
-      ssl: process.env.DB_HOST?.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
     };
+  } catch (_) {
+    poolConfig = process.env.DATABASE_URL;
+  }
+} else {
+  poolConfig = {
+    host: process.env.DB_HOST || "localhost",
+    user: process.env.DB_USER || process.env.DB_USERNAME || "root",
+    password: process.env.DB_PASS || process.env.DB_PASSWORD || "",
+    database: process.env.DB_NAME || process.env.DB_DATABASE || "gym_saas",
+    port: parseInt(process.env.DB_PORT) || 3306,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+    ssl: process.env.DB_HOST?.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
+  };
+}
 
 export const pool = mysql.createPool(poolConfig).promise();
 
