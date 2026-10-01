@@ -515,57 +515,62 @@ export const getAttendanceReportByAdmin = async (req, res, next) => {
     const fromDate = new Date(from).toISOString().slice(0, 10);
     const toDate = new Date(to).toISOString().slice(0, 10);
 
-    // 1️⃣ STAFF LIST (under admin)
+    // Calculate date range working days (Mon–Sat, 8 hrs/day) for scheduled hrs
+    const msPerDay = 86400000;
+    const d1 = new Date(fromDate);
+    const d2 = new Date(toDate);
+    let workingDays = 0;
+    for (let d = new Date(d1); d <= d2; d = new Date(d.getTime() + msPerDay)) {
+      const day = d.getDay(); // 0=Sun, 6=Sat
+      if (day !== 0) workingDays++; // Mon–Sat count
+    }
+    const scheduledHrsForRange = workingDays * 8;
+
+    // 1️⃣ STAFF LIST (under admin) — staffattendance.staffId = user.id directly
     const [staff] = await pool.query(
       `
       SELECT 
-        s.id AS staffId,
+        u.id AS userId,
         u.fullName,
-        r.name AS role,
-        'Straight' AS shiftName,
-        48 AS hoursPerWeek
+        r.name AS role
       FROM staff s
       JOIN user u ON u.id = s.userId
       LEFT JOIN role r ON r.id = u.roleId
       WHERE u.adminId = ?
+      ORDER BY u.fullName ASC
       `,
       [adminId]
     );
 
-    // 2️⃣ ATTENDANCE LIST (within date range)
+    // 2️⃣ ATTENDANCE LIST — staffattendance.staffId stores user.id
     const [attendance] = await pool.query(
       `
       SELECT 
         sa.id,
         sa.staffId,
         sa.checkIn,
-        sa.checkOut
+        sa.checkOut,
+        sa.status
       FROM staffattendance sa
-      JOIN staff s ON s.id = sa.staffId
-      JOIN user u ON u.id = s.userId
+      JOIN user u ON u.id = sa.staffId
       WHERE u.adminId = ?
       AND DATE(sa.checkIn) BETWEEN ? AND ?
       `,
       [adminId, fromDate, toDate]
     );
 
-    // 3️⃣ HEATMAP (Day Vs Date)
-    const heatmap = {};
-    attendance.forEach(a => {
-      const dateStr = new Date(a.checkIn).toISOString().split("T")[0];
-      const day = new Date(dateStr).toLocaleString("en-US", { weekday: "short" });
+    // 3️⃣ HEATMAP (Array format for frontend heatmap by day+hour)
+    const heatmap = attendance.map(a => ({
+      date: a.checkIn,
+      checkins: 1
+    }));
 
-      if (!heatmap[day]) heatmap[day] = {};
-      heatmap[day][dateStr] = (heatmap[day][dateStr] || 0) + 1;
-    });
-
-    // 4️⃣ HOURS CALCULATION
+    // 4️⃣ BUILD attendanceMap keyed by userId
     const attendanceMap = {};
     attendance.forEach(a => {
       if (!attendanceMap[a.staffId]) {
         attendanceMap[a.staffId] = { presentHours: 0 };
       }
-
       if (a.checkIn && a.checkOut) {
         const diffMs = new Date(a.checkOut) - new Date(a.checkIn);
         const hours = diffMs / (1000 * 60 * 60);
@@ -575,29 +580,29 @@ export const getAttendanceReportByAdmin = async (req, res, next) => {
 
     // 5️⃣ FINAL TABLE DATA (per staff)
     const table = staff.map(s => {
-      const att = attendanceMap[s.staffId] || {};
-      const scheduled = 48;   // Default weekly hours
-      const present = att.presentHours || 0;
+      const att = attendanceMap[s.userId] || {};
+      const present = Number((att.presentHours || 0).toFixed(1));
+      const scheduled = scheduledHrsForRange;
+      const ot = present > scheduled ? Number((present - scheduled).toFixed(1)) : 0;
+      const compliancePct = scheduled > 0 ? Math.round((present / scheduled) * 100) : 0;
 
       return {
         name: s.fullName,
         role: s.role,
-        shift: s.shiftName,
+        shift: 'Straight',
         scheduledHrs: scheduled,
-        presentHrs: Number(present.toFixed(1)),
-        ot: 0,
-        compliance: `${Math.round((present / scheduled) * 100)}%`
+        presentHrs: present,
+        ot,
+        compliance: `${compliancePct}%`
       };
     });
 
     // 6️⃣ OVERALL COMPLIANCE
     const totalScheduled = table.reduce((a, b) => a + b.scheduledHrs, 0);
     const totalPresent = table.reduce((a, b) => a + b.presentHrs, 0);
-
-    const overallCompliance =
-      totalScheduled > 0
-        ? Math.round((totalPresent / totalScheduled) * 100)
-        : 0;
+    const overallCompliance = totalScheduled > 0
+      ? Math.round((totalPresent / totalScheduled) * 100)
+      : 0;
 
     // 7️⃣ FINAL RESPONSE
     res.json({

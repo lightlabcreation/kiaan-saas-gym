@@ -51,6 +51,17 @@ export const verifyToken = (roles = []) => {
         throw { status: 401, message: "Session expired. Please log in again." };
       }
 
+      // Check user account status in database to enforce immediate session invalidation if suspended/deactivated
+      if (decoded.id && !decoded.memberId) {
+        const [uRows] = await pool.query("SELECT status FROM user WHERE id = ? LIMIT 1", [decoded.id]);
+        if (uRows.length > 0) {
+          const uStatus = (uRows[0].status || '').toLowerCase().trim();
+          if (uStatus === 'inactive' || uStatus === 'suspended') {
+            throw { status: 403, message: "Account is inactive or suspended. Access denied." };
+          }
+        }
+      }
+
       next();
     } catch (err) {
       if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {

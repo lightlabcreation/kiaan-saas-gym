@@ -26,6 +26,10 @@ export const createPurchaseService = async (data) => {
   await pool.query(`UPDATE purchase SET transactionId = ? WHERE id = ?`, [transactionId, purchaseId]);
 
   const [purchase] = await pool.query(`SELECT * FROM purchase WHERE id = ?`, [purchaseId]);
+  if (purchase[0]) {
+    delete purchase[0].password;
+    delete purchase[0].visiblePassword;
+  }
   return purchase[0];
 };
 
@@ -42,7 +46,11 @@ export const getAllPurchasesService = async (email) => {
   query += ` ORDER BY id DESC`;
 
   const [rows] = await pool.query(query, params);
-  return rows;
+  return rows.map(r => {
+    delete r.password;
+    delete r.visiblePassword;
+    return r;
+  });
 };
 
 // Modify purchase status
@@ -51,5 +59,9 @@ export const modifyPurchaseStatus = async (id, status) => {
 
   await pool.query(`UPDATE purchase SET status = ? WHERE id = ?`, [status, id]);
   const [updated] = await pool.query(`SELECT * FROM purchase WHERE id = ?`, [id]);
+  if (updated[0]) {
+    delete updated[0].password;
+    delete updated[0].visiblePassword;
+  }
   return updated[0];
 };

@@ -197,11 +197,15 @@ export const createItemRequestService = async (data) => {
   if (!itemName) throw { status: 400, message: "Item name is required" };
   if (!requestedBy) throw { status: 400, message: "requestedBy is required" };
 
+  const parsedBranchId = (branchId && branchId !== "" && !isNaN(branchId)) ? parseInt(branchId, 10) : null;
+  const parsedAdminId = (adminId && adminId !== "" && !isNaN(adminId)) ? parseInt(adminId, 10) : null;
+  const parsedQuantity = (quantity && !isNaN(quantity)) ? parseInt(quantity, 10) : 1;
+
   const [result] = await pool.query(
     `INSERT INTO equipment_requests 
      (requestedBy, role, itemName, category, quantity, reason, branchId, adminId, imageUrl)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [requestedBy, role || "MEMBER", itemName, category || "Other", quantity, reason || null, branchId, adminId, imageUrl || null]
+    [requestedBy, role || "MEMBER", itemName, category || "Other", parsedQuantity, reason || null, parsedBranchId, parsedAdminId, imageUrl || null]
   );
 
   const [req] = await pool.query(`SELECT * FROM equipment_requests WHERE id = ?`, [result.insertId]);

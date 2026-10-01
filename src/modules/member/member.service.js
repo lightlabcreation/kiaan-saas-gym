@@ -39,6 +39,31 @@ export const createMemberService = async (data) => {
     };
   }
 
+  /* ----------------------------------------------------
+     0️⃣ CHECK ADMIN PLAN MEMBER LIMIT RESTRICTION
+  ---------------------------------------------------- */
+  if (adminId) {
+    const [adminUser] = await pool.query("SELECT planName FROM user WHERE id = ?", [adminId]);
+    const planName = (adminUser[0]?.planName || '7-Day Free Trial').trim();
+
+    let maxMembers = 50; // Default Free Trial: 50 members
+    const nameLower = planName.toLowerCase();
+    if (nameLower.includes('starter') || planName.includes('999')) maxMembers = 300;
+    else if (nameLower.includes('growth') || planName.includes('1299')) maxMembers = 750;
+    else if (nameLower.includes('pro') || planName.includes('1499')) maxMembers = 1500;
+    else if (nameLower.includes('custom') || nameLower.includes('enterprise')) maxMembers = 999999;
+
+    const [memberCount] = await pool.query("SELECT COUNT(*) as currentCount FROM member WHERE adminId = ?", [adminId]);
+    const currentCount = memberCount[0]?.currentCount || 0;
+
+    if (currentCount >= maxMembers) {
+      throw {
+        status: 400,
+        message: `Member limit reached! Your ${planName} plan allows a maximum of ${maxMembers} members. Please upgrade your subscription.`
+      };
+    }
+  }
+
   // Use provided password or default password fallback (12345 as requested)
   const userPassword = password || "12345";
   const hashedPassword = await bcrypt.hash(userPassword, 10);

@@ -289,8 +289,31 @@ export const registerUser = async (data,payload) => {
 // };
 
 
+// Helper to ensure columns exist in user table safely (run once on module load)
+let userColumnsEnsured = false;
+const ensureUserColumns = async () => {
+  if (userColumnsEnsured) return;
+  try {
+    await pool.query(`ALTER TABLE user ADD COLUMN isTrial TINYINT(1) DEFAULT 0`).catch(() => {});
+    await pool.query(`ALTER TABLE user ADD COLUMN licenseExpiryDate DATETIME DEFAULT NULL`).catch(() => {});
+    await pool.query(`ALTER TABLE user ADD COLUMN razorpayKeyId VARCHAR(255) DEFAULT NULL`).catch(() => {});
+    await pool.query(`ALTER TABLE user ADD COLUMN trialStatus VARCHAR(50) DEFAULT 'None'`).catch(() => {});
+    userColumnsEnsured = true;
+  } catch (err) {}
+};
+
+// Trigger once in background
+ensureUserColumns();
+
 // ✅ service
 export const loginUser = async ({ email, password, bypassPassword = false }) => {
+  if (!email || typeof email !== "string" || !email.trim()) {
+    throw { status: 400, message: "Email is required" };
+  }
+
+  const cleanEmail = email.trim();
+  const cleanPassword = password ? String(password).trim() : "";
+
   /* ===============================
      1️⃣ GET USER + ROLE + BRANCH
   =============================== */
@@ -320,10 +343,10 @@ export const loginUser = async ({ email, password, bypassPassword = false }) => 
     ORDER BY u.id DESC
   `;
 
-  const [rows] = await pool.query(sql, [email]);
+  const [rows] = await pool.query(sql, [cleanEmail]);
   
   if (rows.length === 0) {
-    throw { status: 400, message: "User not found" };
+    throw { status: 401, message: "Invalid email or password" };
   }
 
   let user = null;
@@ -332,14 +355,14 @@ export const loginUser = async ({ email, password, bypassPassword = false }) => 
   // Since emails can be duplicated across tenants, we must find the first one that matches the password.
   // We order by id DESC to prefer the most recently created account if passwords collide.
   for (const row of rows) {
-    const match = bypassPassword || await bcrypt.compare(password, row.password);
+    const match = bypassPassword || (row.password ? await bcrypt.compare(cleanPassword, String(row.password)) : false);
     if (match) {
       const normStatus = (row.status || '').toLowerCase().trim();
-      if (normStatus === 'inactive') {
+      if (normStatus === 'inactive' || normStatus === 'suspended') {
         if (row.trialStatus === 'Expired') {
           statusError = { status: 403, message: "Your trial has expired. Please purchase a subscription to continue." };
         } else {
-          statusError = { status: 403, message: "Your account is inactive. Please contact support." };
+          statusError = { status: 403, message: "Your account is inactive or suspended. Please contact support." };
         }
         continue; // Keep looking for an active account with this password
       }
@@ -354,7 +377,7 @@ export const loginUser = async ({ email, password, bypassPassword = false }) => 
     if (statusError) {
       throw statusError;
     }
-    throw { status: 401, message: "Invalid password or account" };
+    throw { status: 401, message: "Invalid email or password" };
   }
 
   /* ===============================
@@ -500,7 +523,11 @@ export const fetchUserById = async (id) => {
 
   if (rows.length === 0) throw { status: 404, message: "User not found" };
 
-  return rows[0];
+  const userObj = { ...rows[0] };
+  delete userObj.password;
+  delete userObj.visiblePassword;
+
+  return userObj;
 };
 
 
@@ -826,7 +853,11 @@ await pool.query(
  **************************************/
 export const fetchAdmins = async () => {
   const sql = `
-    SELECT u.*, r.name AS roleName,
+    SELECT u.id, u.fullName, u.email, u.phone, u.roleId, u.branchId, u.gymName,
+           u.address, u.planName, u.price, u.duration, u.description, u.status,
+           u.adminId, u.profileImage, u.gstNumber, u.tax, u.gymAddress,
+           u.subscriptionPlan, u.licenseExpiryDate, u.createdAt, u.updatedAt,
+           r.name AS roleName,
            p.category AS planCategory,
            p.name AS planDisplayName,
            p.duration AS planDuration
@@ -838,7 +869,11 @@ export const fetchAdmins = async () => {
   `;
 
   const [rows] = await pool.query(sql);
-  return rows;
+  return rows.map(r => {
+    delete r.password;
+    delete r.visiblePassword;
+    return r;
+  });
 };
 
 
@@ -876,14 +911,14 @@ export const loginMemberService = async ({ email, password, bypassPassword = fal
   const [rows] = await pool.query(sql, [email]);
   const member = rows[0];
 
-  if (!member) throw { status: 400, message: "Invalid email or password" };
+  if (!member) throw { status: 401, message: "Invalid email or password" };
 
-  if (member.status !== "ACTIVE") {
-    throw { status: 403, message: "Account disabled" };
+  if (member.status !== "ACTIVE" && member.status !== "Active") {
+    throw { status: 403, message: "Your account is inactive or suspended. Please contact support." };
   }
 
   if (!bypassPassword && member.password !== password) {
-    throw { status: 400, message: "Invalid email or password" };
+    throw { status: 401, message: "Invalid email or password" };
   }
 
   const token = jwt.sign(
@@ -923,9 +958,6 @@ export const changeUserPassword = async (id, oldPassword, newPassword) => {
     match = await bcrypt.compare(oldPassword, user.password);
   } catch (e) {}
 
-  if (!match && user.password === oldPassword) match = true;
-  if (!match && user.visiblePassword === oldPassword) match = true;
-
   if (!match) {
     throw { status: 400, message: "Old password is incorrect" };
   }
@@ -935,8 +967,8 @@ export const changeUserPassword = async (id, oldPassword, newPassword) => {
 
   // 4. Update password
   await pool.query(
-    "UPDATE user SET password = ?, visiblePassword = ? WHERE id = ?",
-    [hashedPassword, newPassword, id]
+    "UPDATE user SET password = ? WHERE id = ?",
+    [hashedPassword, id]
   );
 
   return { message: "Password updated successfully" };
@@ -1112,9 +1144,9 @@ export const getAdminDashboardData = async (adminId, branchId = null, monthStr =
   const groupByMember = isOneMonth ? "DATE(createdAt)" : "YEAR(createdAt), MONTH(createdAt)";
   const orderByMember = isOneMonth ? "DATE(createdAt)" : "YEAR(createdAt), MONTH(createdAt)";
   
-  const dateFormatRevenue = isOneMonth ? "DATE_FORMAT(MIN(p.paymentDate), '%d %b')" : "DATE_FORMAT(MIN(p.paymentDate), '%b')";
-  const groupByRevenue = isOneMonth ? "DATE(p.paymentDate)" : "YEAR(p.paymentDate), MONTH(p.paymentDate)";
-  const orderByRevenue = isOneMonth ? "DATE(p.paymentDate)" : "YEAR(p.paymentDate), MONTH(p.paymentDate)";
+  const dateFormatRevenue = isOneMonth ? "DATE_FORMAT(MIN(paymentDate), '%d %b')" : "DATE_FORMAT(MIN(paymentDate), '%b')";
+  const groupByRevenue = isOneMonth ? "DATE(paymentDate)" : "YEAR(paymentDate), MONTH(paymentDate)";
+  const orderByRevenue = isOneMonth ? "DATE(paymentDate)" : "YEAR(paymentDate), MONTH(paymentDate)";
 
   const dateFormatExpense = isOneMonth ? "DATE_FORMAT(MIN(e.date), '%d %b')" : "DATE_FORMAT(MIN(e.date), '%b')";
   const groupByExpense = isOneMonth ? "DATE(e.date)" : "YEAR(e.date), MONTH(e.date)";
@@ -1127,38 +1159,38 @@ export const getAdminDashboardData = async (adminId, branchId = null, monthStr =
   // 5 CARDS
   const statsQuery = `
     SELECT 
-      -- Member count (roleId = 4)
-     (SELECT COUNT(*) 
- FROM member 
- WHERE adminId = ?
-   ${bId ? "AND branchId = ?" : ""}
-   AND membershipTo IS NOT NULL
-   AND DATE(membershipFrom) <= ?
-   AND DATEDIFF(membershipTo, ?) > 0
-) AS totalMembers,
-
+      -- Member count (Active and valid plan)
+      (SELECT COUNT(*) 
+       FROM member 
+       WHERE adminId = ?
+       ${bId ? "AND branchId = ?" : ""}
+       AND status = 'Active'
+       AND membershipTo IS NOT NULL
+       AND DATE(membershipFrom) <= ?
+       AND DATEDIFF(membershipTo, ?) >= 0
+      ) AS totalMembers,
 
       -- Staff count
       (SELECT COUNT(*) FROM staff 
-        WHERE status = 'Active' AND adminId = ?
-        ${bId ? "AND branchId = ?" : ""}
-        ) AS totalStaff,
+       WHERE status = 'Active' AND adminId = ?
+       ${bId ? "AND branchId = ?" : ""}
+      ) AS totalStaff,
 
-      -- Today's Member Check-ins (JOIN member → user → adminId)
+      -- Today's Member Check-ins (JOIN member → adminId)
       (SELECT COUNT(*) FROM memberattendance ma
-        JOIN member m ON ma.memberId = m.id
-        WHERE m.adminId = ?
-        ${bId ? "AND m.branchId = ?" : ""}
-        AND DATE(CONVERT_TZ(ma.checkIn, '+00:00', '+05:30')) = ?
+       JOIN member m ON ma.memberId = m.id
+       WHERE m.adminId = ?
+       ${bId ? "AND m.branchId = ?" : ""}
+       AND DATE(CONVERT_TZ(ma.checkIn, '+00:00', '+05:30')) = ?
       ) AS todaysMemberCheckins,
 
-      -- Today's Staff Check-ins (JOIN staff → adminId)
+      -- Today's Staff Check-ins (JOIN staffattendance → staff → adminId)
       (SELECT COUNT(*) 
-        FROM memberattendance ma
-        JOIN staff s ON ma.memberId = s.userId
-        WHERE s.adminId = ?
-        ${bId ? "AND s.branchId = ?" : ""}
-        AND DATE(CONVERT_TZ(ma.checkIn, '+00:00', '+05:30')) = ?
+       FROM staffattendance sa
+       JOIN staff s ON sa.staffId = s.id
+       WHERE s.adminId = ?
+       ${bId ? "AND s.branchId = ?" : ""}
+       AND DATE(CONVERT_TZ(sa.checkIn, '+00:00', '+05:30')) = ?
       ) AS todaysStaffCheckins
   `;
 
@@ -1177,44 +1209,52 @@ export const getAdminDashboardData = async (adminId, branchId = null, monthStr =
   `;
 
   // recent activity
-const recentActivitiesQuery = `
-  (
-    SELECT 
-      CONCAT('New member registration: ', fullName) AS activity,
-      joinDate AS time,
-      'member' AS type
-    FROM member
-    WHERE adminId = ?
-    ${bId ? "AND branchId = ?" : ""}
-  )
-
-  UNION ALL
-
-  (
-    SELECT 
-      CONCAT('Class booking by Member ID ', memberId) AS activity,
-      createdAt AS time,
-      'class_booking' AS type
-    FROM booking_requests
-    WHERE adminId = ?
-    -- booking_requests doesn't have branchId directly in schema usually, ignoring filter
-  )
-
-  UNION ALL
-
-  (
-    SELECT 
-      CONCAT('Staff check-in: Staff ID ', sa.staffId) AS activity,
-      sa.checkIn AS time,
-      'staff_checkin' AS type
-    FROM staffattendance sa
-    JOIN staff s ON sa.staffId = s.id
-    WHERE s.adminId = ?
-    ${bId ? "AND s.branchId = ?" : ""}
-  )
-
-  ORDER BY time DESC
-  LIMIT 5;
+  const recentActivitiesQuery = `
+    (
+      SELECT 
+        CONCAT('New member registration: ', fullName) AS activity,
+        joinDate AS time,
+        'member' AS type
+      FROM member
+      WHERE adminId = ?
+      ${bId ? "AND branchId = ?" : ""}
+    )
+    UNION ALL
+    (
+      SELECT 
+        CONCAT('Member Check-in: ', m.fullName) AS activity,
+        ma.checkIn AS time,
+        'member_checkin' AS type
+      FROM memberattendance ma
+      JOIN member m ON ma.memberId = m.id
+      WHERE m.adminId = ?
+      ${bId ? "AND m.branchId = ?" : ""}
+    )
+    UNION ALL
+    (
+      SELECT 
+        CONCAT('Payment Received: ₹', p.amount) AS activity,
+        p.paymentDate AS time,
+        'payment' AS type
+      FROM payment p
+      JOIN member mt ON p.memberId = mt.id
+      WHERE mt.adminId = ?
+      ${bId ? "AND mt.branchId = ?" : ""}
+      AND p.status IN ('Approved', 'Completed', 'Success')
+    )
+    UNION ALL
+    (
+      SELECT 
+        CONCAT('Staff check-in: Staff ID ', sa.staffId) AS activity,
+        sa.checkIn AS time,
+        'staff_checkin' AS type
+      FROM staffattendance sa
+      JOIN staff s ON sa.staffId = s.id
+      WHERE s.adminId = ?
+      ${bId ? "AND s.branchId = ?" : ""}
+    )
+    ORDER BY time DESC
+    LIMIT 5;
   `;
 
   // REVENUE GROWTH (Admin-wise)
@@ -1223,22 +1263,12 @@ const recentActivitiesQuery = `
       ${dateFormatRevenue} AS month,
       MIN(p.paymentDate) AS rawDate,
       SUM(p.amount) AS totalRevenue
-    FROM (
-      SELECT m.joinDate AS paymentDate, COALESCE(m.amountPaid, 0) AS amount
-      FROM member m
-      WHERE m.adminId = ?
-        ${bId ? "AND (m.branchId = ? OR m.branchId IS NULL)" : ""}
-        AND m.joinDate >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
-        
-      UNION ALL
-      
-      SELECT pt.paymentDate AS paymentDate, COALESCE(pt.amount, 0) AS amount
-      FROM payment pt
-      JOIN member mt ON pt.memberId = mt.id
-      WHERE mt.adminId = ?
-        ${bId ? "AND (mt.branchId = ? OR mt.branchId IS NULL)" : ""}
-        AND pt.paymentDate >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
-    ) p
+    FROM payment p
+    JOIN member mt ON p.memberId = mt.id
+    WHERE mt.adminId = ?
+      ${bId ? "AND (mt.branchId = ? OR mt.branchId IS NULL)" : ""}
+      AND p.paymentDate >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+      AND p.status IN ('Approved', 'Completed', 'Success')
     GROUP BY ${groupByRevenue}
     ORDER BY ${orderByRevenue};
   `;
@@ -1285,6 +1315,7 @@ const recentActivitiesQuery = `
     JOIN member m ON p.memberId = m.id
     WHERE m.adminId = ?
       ${bId ? "AND (m.branchId = ? OR m.branchId IS NULL)" : ""}
+      AND p.status IN ('Approved', 'Completed', 'Success')
     ORDER BY p.paymentDate DESC
     LIMIT 10;
   `;
@@ -1306,29 +1337,91 @@ const recentActivitiesQuery = `
   statsParams.push(adminId); if (bId) statsParams.push(bId);
   statsParams.push(todayStr);
 
-  const [stats] = await pool.query(statsQuery, statsParams);
-
   const growthParams = [adminId];
   if (bId) growthParams.push(bId);
   growthParams.push(chartPeriod);
-  const [memberGrowth] = await pool.query(memberGrowthQuery, growthParams);
 
   const recentParams = [];
-  recentParams.push(adminId); if (bId) recentParams.push(bId);
-  recentParams.push(adminId); // booking_requests
-  recentParams.push(adminId); if (bId) recentParams.push(bId);
-
-  const [recentActivities] = await pool.query(recentActivitiesQuery, recentParams);
+  recentParams.push(adminId); if (bId) recentParams.push(bId); // member
+  recentParams.push(adminId); if (bId) recentParams.push(bId); // member_checkin
+  recentParams.push(adminId); if (bId) recentParams.push(bId); // payment
+  recentParams.push(adminId); if (bId) recentParams.push(bId); // staff_checkin
 
   const revenueParams = [adminId];
   if (bId) revenueParams.push(bId);
   revenueParams.push(chartPeriod);
   
-  const fullRevenueParams = [...revenueParams, ...revenueParams];
-  const [revenueGrowth] = await pool.query(revenueGrowthQuery, fullRevenueParams);
-  
-  const [expenseGrowth] = await pool.query(expenseGrowthQuery, revenueParams);
-  const [salaryGrowth] = await pool.query(salaryGrowthQuery, revenueParams);
+  const expenseParams = [adminId];
+  if (bId) expenseParams.push(bId);
+  expenseParams.push(chartPeriod);
+
+  const paymentParams = [adminId];
+  if (bId) paymentParams.push(bId);
+
+  const upcomingExpiriesParams = [adminId];
+  if (bId) upcomingExpiriesParams.push(bId);
+
+  // 🔥 Parallel Execution of All Dashboard Queries via Promise.all
+  const [
+    [stats],
+    [memberGrowth],
+    [recentActivities],
+    [revenueGrowth],
+    [expenseGrowth],
+    [salaryGrowth],
+    [recentPayments],
+    monthRevRows,
+    monthExpRows,
+    monthSalRows,
+    [upcomingExpiries]
+  ] = await Promise.all([
+    pool.query(statsQuery, statsParams),
+    pool.query(memberGrowthQuery, growthParams),
+    pool.query(recentActivitiesQuery, recentParams),
+    pool.query(revenueGrowthQuery, revenueParams),
+    pool.query(expenseGrowthQuery, expenseParams),
+    pool.query(salaryGrowthQuery, expenseParams),
+    pool.query(recentPaymentsQuery, paymentParams),
+    pool.query(
+      `SELECT COALESCE(SUM(p.amount), 0) AS total
+       FROM payment p
+       JOIN member m ON p.memberId = m.id
+       WHERE m.adminId = ?
+         ${bId ? "AND (m.branchId = ? OR m.branchId IS NULL)" : ""}
+         AND DATE_FORMAT(p.paymentDate, '%Y-%m') = ?
+         AND p.status IN ('Approved', 'Completed', 'Success')`,
+      bId ? [adminId, bId, targetMonth] : [adminId, targetMonth]
+    ).catch(() => [[{ total: 0 }]]),
+    pool.query(
+      `SELECT COALESCE(SUM(e.amount), 0) AS total 
+       FROM expense e
+       JOIN branch b ON e.branchId = b.id
+       WHERE b.adminId = ?
+         ${bId ? "AND (e.branchId = ? OR e.branchId IS NULL)" : ""}
+         AND DATE_FORMAT(e.date, '%Y-%m') = ?`,
+      bId ? [adminId, bId, targetMonth] : [adminId, targetMonth]
+    ).catch(() => [[{ total: 0 }]]),
+    pool.query(
+      `SELECT COALESCE(SUM(s.netPay), 0) AS total 
+       FROM salary s
+       JOIN staff st ON s.staffId = st.id
+       WHERE st.adminId = ?
+         ${bId ? "AND (st.branchId = ? OR st.branchId IS NULL)" : ""}
+         AND DATE_FORMAT(s.periodEnd, '%Y-%m') = ?`,
+      bId ? [adminId, bId, targetMonth] : [adminId, targetMonth]
+    ).catch(() => [[{ total: 0 }]]),
+    pool.query(
+      `SELECT m.id, m.fullName, m.email, m.phone, m.membershipTo, p.name AS planName 
+       FROM member m
+       LEFT JOIN memberplan p ON m.planId = p.id
+       WHERE m.adminId = ?
+         ${bId ? "AND (m.branchId = ? OR m.branchId IS NULL)" : ""}
+         AND m.membershipTo IS NOT NULL
+         AND m.membershipTo BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+       ORDER BY m.membershipTo ASC`,
+      upcomingExpiriesParams
+    )
+  ]);
 
   // Calculate profitGrowth
   const profitMap = {};
@@ -1348,73 +1441,13 @@ const recentActivitiesQuery = `
     .sort((a, b) => new Date(a.rawDate) - new Date(b.rawDate))
     .map(p => ({ month: p.month, totalProfit: p.revenue - p.expense }));
 
-  const paymentParams = [adminId];
-  if (bId) paymentParams.push(bId);
-  const [recentPayments] = await pool.query(recentPaymentsQuery, paymentParams);
-
-  // Financial KPIs based on monthStr
-  const monthFilter = `${targetMonth}-01`;
-
-  const [[monthRevRow]] = await pool.query(
-    `SELECT (
-       COALESCE((
-         SELECT SUM(p.amount)
-         FROM payment p
-         JOIN member m ON p.memberId = m.id
-         WHERE m.adminId = ?
-           ${bId ? "AND (m.branchId = ? OR m.branchId IS NULL)" : ""}
-           AND DATE_FORMAT(p.paymentDate, '%Y-%m') = ?
-       ), 0) +
-       COALESCE((
-         SELECT SUM(m.amountPaid)
-         FROM member m
-         WHERE m.adminId = ?
-           ${bId ? "AND (m.branchId = ? OR m.branchId IS NULL)" : ""}
-           AND DATE_FORMAT(m.joinDate, '%Y-%m') = ?
-       ), 0)
-     ) AS total`,
-    bId ? [adminId, bId, targetMonth, adminId, bId, targetMonth] : [adminId, targetMonth, adminId, targetMonth]
-  ).catch(() => [[{ total: 0 }]]);
+  const monthRevRow = Array.isArray(monthRevRows) && monthRevRows[0] ? monthRevRows[0][0] : { total: 0 };
+  const monthExpRow = Array.isArray(monthExpRows) && monthExpRows[0] ? monthExpRows[0][0] : { total: 0 };
+  const monthSalRow = Array.isArray(monthSalRows) && monthSalRows[0] ? monthSalRows[0][0] : { total: 0 };
 
   const monthlyRevenue = Number(monthRevRow?.total || 0);
-
-  const [[monthExpRow]] = await pool.query(
-    `SELECT COALESCE(SUM(e.amount), 0) AS total 
-     FROM expense e
-     JOIN branch b ON e.branchId = b.id
-     WHERE b.adminId = ?
-       ${bId ? "AND (e.branchId = ? OR e.branchId IS NULL)" : ""}
-       AND DATE_FORMAT(e.date, '%Y-%m') = ?`,
-    bId ? [adminId, bId, targetMonth] : [adminId, targetMonth]
-  ).catch((err) => { console.error(err); return [[{ total: 0 }]]; });
-
-  const [[monthSalRow]] = await pool.query(
-    `SELECT COALESCE(SUM(s.netPay), 0) AS total 
-     FROM salary s
-     JOIN staff st ON s.staffId = st.id
-     WHERE st.adminId = ?
-       ${bId ? "AND (st.branchId = ? OR st.branchId IS NULL)" : ""}
-       AND DATE_FORMAT(s.periodEnd, '%Y-%m') = ?`,
-    bId ? [adminId, bId, targetMonth] : [adminId, targetMonth]
-  ).catch((err) => { console.error(err); return [[{ total: 0 }]]; });
-
   const monthlyExpenses = Number(monthExpRow?.total || 0) + Number(monthSalRow?.total || 0);
   const monthlyProfit = monthlyRevenue - monthlyExpenses;
-
-  const upcomingExpiriesParams = [adminId];
-  if (bId) upcomingExpiriesParams.push(bId);
-
-  const [upcomingExpiries] = await pool.query(
-    `SELECT m.id, m.fullName, m.email, m.phone, m.membershipTo, p.name AS planName 
-     FROM member m
-     LEFT JOIN memberplan p ON m.planId = p.id
-     WHERE m.adminId = ?
-       ${bId ? "AND (m.branchId = ? OR m.branchId IS NULL)" : ""}
-       AND m.membershipTo IS NOT NULL
-       AND m.membershipTo BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
-     ORDER BY m.membershipTo ASC`,
-    upcomingExpiriesParams
-  );
 
   return {
     ...stats[0],

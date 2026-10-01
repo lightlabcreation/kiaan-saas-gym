@@ -257,7 +257,7 @@ export const createStaffAttendanceService = async (data) => {
 
   const [result] = await pool.query(
     `
-    INSERT INTO memberattendance
+    INSERT INTO staffattendance
       (staffId, shiftId, checkIn, checkOut, mode, status, notes)
     VALUES ( ?, ?, ?, ?, ?, ?, ?)
     `,
@@ -289,7 +289,7 @@ export const createStaffAttendanceService = async (data) => {
       sa.status,
       sa.notes,
       sa.createdAt
-    FROM memberattendance sa
+    FROM staffattendance sa
     LEFT JOIN staff s ON sa.staffId = s.id
     LEFT JOIN user u ON s.userId = u.id
     WHERE sa.id = ?

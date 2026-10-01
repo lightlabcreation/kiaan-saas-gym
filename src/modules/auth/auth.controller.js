@@ -6,6 +6,7 @@ import { registerUser, loginUser , fetchUserById,
 } from "./auth.service.js";
 import crypto from "crypto";
 import { PaymentCredentialResolver } from "../../utils/credentialResolvers.js";
+import { logAudit } from "../auditLog/auditLog.service.js";
 
 
 
@@ -85,7 +86,22 @@ export const getAdmins = async (req, res, next) => {
 
 export const updateUser = async (req, res, next) => {
   try {
-    const data = await modifyUser(Number(req.params.id), req.body,req.files);
+    const data = await modifyUser(Number(req.params.id), req.body, req.files);
+
+    logAudit({
+      req,
+      userId: req.params.id,
+      adminId: req.user?.adminId || req.user?.id,
+      action: "USER_UPDATE",
+      module: "AUTHENTICATION",
+      resourceType: "User",
+      resourceId: req.params.id,
+      description: `Updated account details for user ID #${req.params.id}`,
+      status: "SUCCESS",
+      severity: "INFO",
+      newValue: req.body
+    });
+
     res.json({ success: true, user: data });
   } catch (err) {
     next(err);
@@ -95,6 +111,20 @@ export const updateUser = async (req, res, next) => {
 export const deleteUser = async (req, res, next) => {
   try {
     const data = await removeUser(Number(req.params.id));
+
+    logAudit({
+      req,
+      userId: req.params.id,
+      adminId: req.user?.adminId || req.user?.id,
+      action: "USER_DELETE",
+      module: "AUTHENTICATION",
+      resourceType: "User",
+      resourceId: req.params.id,
+      description: `Deleted user ID #${req.params.id}`,
+      status: "SUCCESS",
+      severity: "WARNING"
+    });
+
     res.json({ success: true, message: "User deleted" });
   } catch (err) {
     next(err);
@@ -119,10 +149,25 @@ export const getDashboardStats = async (req, res, next) => {
 
 // ✅ controller
 export const login = async (req, res, next) => {
+  const { email, password } = req.body;
   try {
-    const { email, password } = req.body;
-
     const { token, user } = await loginUser({ email, password });
+
+    logAudit({
+      req,
+      userId: user.id,
+      userName: user.fullName,
+      userEmail: user.email,
+      userRole: user.roleName,
+      adminId: user.adminId || user.id,
+      action: "LOGIN",
+      module: "AUTHENTICATION",
+      resourceType: "user",
+      resourceId: user.id,
+      description: `User ${user.email} (${user.roleName}) logged in successfully`,
+      status: "SUCCESS",
+      severity: "INFO"
+    });
 
     res.json({
       success: true,
@@ -150,6 +195,16 @@ export const login = async (req, res, next) => {
       }
     });
   } catch (err) {
+    logAudit({
+      req,
+      userEmail: email || "N/A",
+      action: "FAILED_LOGIN",
+      module: "AUTHENTICATION",
+      resourceType: "user",
+      description: `Failed login attempt for email: ${email || "unknown"} - ${err.message || "Invalid credentials"}`,
+      status: "FAILED",
+      severity: "WARNING"
+    });
     next(err);
   }
 };
@@ -192,6 +247,19 @@ export const changePasswordController = async (req, res, next) => {
     }
 
     const result = await changeUserPassword(id, oldPassword, newPassword);
+
+    logAudit({
+      req,
+      userId: id,
+      adminId: req.user?.adminId || req.user?.id,
+      action: "PASSWORD_CHANGE",
+      module: "AUTHENTICATION",
+      resourceType: "User",
+      resourceId: id,
+      description: `User ID #${id} changed their account password`,
+      status: "SUCCESS",
+      severity: "INFO"
+    });
 
     res.json({ success: true, ...result });
 

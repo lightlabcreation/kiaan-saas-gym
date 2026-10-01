@@ -4,7 +4,8 @@ import {
   listPlans,
   updatePlan,
   deletePlan,
-  getPlansByBranch
+  getPlansByBranch,
+  getSuperAdminContact
 } from "./plan.controller.js";
 import { verifyToken } from "../../middlewares/auth.js";
 
@@ -21,6 +22,9 @@ router.get(
   "/",
   listPlans
 );
+
+// Public: Get SuperAdmin contact info for Custom Plan
+router.get("/superadmin-contact", getSuperAdminContact);
 
 router.get(
   "/branch/:branchId",

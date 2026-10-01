@@ -20,6 +20,31 @@ export const createStaffService = async (data) => {
   } = data;
 
   /* ----------------------------------------------------
+     0️⃣ CHECK ADMIN PLAN STAFF LIMIT RESTRICTION
+  ---------------------------------------------------- */
+  if (adminId) {
+    const [adminUser] = await pool.query("SELECT planName FROM user WHERE id = ?", [adminId]);
+    const planName = (adminUser[0]?.planName || '7-Day Free Trial').trim();
+
+    let maxStaff = 3; // Default 7-Day Free Trial limit: 3 staff
+    const nameLower = planName.toLowerCase();
+    if (nameLower.includes('starter') || planName.includes('999')) maxStaff = 10;
+    else if (nameLower.includes('growth') || planName.includes('1299')) maxStaff = 25;
+    else if (nameLower.includes('pro') || planName.includes('1499')) maxStaff = 50;
+    else if (nameLower.includes('custom') || nameLower.includes('enterprise')) maxStaff = 99999;
+
+    const [staffCount] = await pool.query("SELECT COUNT(*) as currentCount FROM staff WHERE adminId = ?", [adminId]);
+    const currentCount = staffCount[0]?.currentCount || 0;
+
+    if (currentCount >= maxStaff) {
+      throw {
+        status: 400,
+        message: `Staff limit reached! Your ${planName} plan allows a maximum of ${maxStaff} staff members. Please upgrade your subscription.`
+      };
+    }
+  }
+
+  /* ----------------------------------------------------
      1️⃣ CHECK DUPLICATE EMAIL (Scoped to Admin)
   ---------------------------------------------------- */
   const [exists] = await pool.query("SELECT id FROM user WHERE email = ? AND adminId = ?", [

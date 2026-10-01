@@ -3,6 +3,7 @@ import { verifyToken } from "../../middlewares/auth.js";
 import {
   addExpense,
   listExpenses,
+  getMonthlyExpenses,
   expenseSummary,
 } from "./expense.controller.js";
 
@@ -13,6 +14,13 @@ router.post(
   "/create",
   verifyToken(["Admin", "Superadmin", "Subadmin", "Manager"]),
   addExpense
+);
+
+// Get Monthly Expenses (including auto salaries & summary)
+router.get(
+  "/monthly",
+  verifyToken(["Admin", "Superadmin", "Subadmin", "Manager"]),
+  getMonthlyExpenses
 );
 
 // List branch expenses

@@ -4,13 +4,13 @@ import { sendAppNotification } from "../../utils/notificationHelper.js";
 import { sendTemplatedNotification } from "../messageTemplates/messageTemplate.service.js";
 
 // ----- CREATE DIET PLAN -----
-export const createDietPlanService = async ({ title, notes, branchId, createdBy, meals, dietType }) => {
+export const createDietPlanService = async ({ title, notes, branchId, createdBy, meals, dietType, adminId }) => {
   if (!title) throw { status: 400, message: "Diet plan title is required" };
 
   // Insert diet plan
   const [planResult] = await pool.query(
-    "INSERT INTO dietplan (title, notes, branchId, createdBy, dietType) VALUES (?, ?, ?, ?, ?)",
-    [title, notes || "", branchId || 0, createdBy || 0, dietType || 'Any']
+    "INSERT INTO dietplan (title, notes, branchId, createdBy, dietType, adminId) VALUES (?, ?, ?, ?, ?, ?)",
+    [title, notes || "", branchId || 0, createdBy || 0, dietType || 'Any', adminId || null]
   );
   const dietPlanId = planResult.insertId;
 
@@ -27,14 +27,27 @@ export const createDietPlanService = async ({ title, notes, branchId, createdBy,
 };
 
 // ----- GET ALL DIET PLANS (FOR TRAINER/ADMIN) -----
-export const getAllDietPlansService = async (branchId, createdBy) => {
-  let query = "SELECT * FROM dietplan ORDER BY id DESC";
+export const getAllDietPlansService = async (branchId, createdBy, adminId, roleId) => {
+  let query = "SELECT * FROM dietplan WHERE 1=1";
   let params = [];
-  
-  if (branchId) {
-    query = "SELECT * FROM dietplan WHERE branchId = ? ORDER BY id DESC";
-    params = [branchId];
+
+  // SuperAdmin (roleId === 1) sees all. Admins and Trainers only see diet plans created in their Gym tenant
+  if (roleId !== 1) {
+    if (adminId) {
+      query += " AND (createdBy IN (SELECT id FROM user WHERE id = ? OR adminId = ?) OR createdBy = ? OR adminId = ?)";
+      params.push(adminId, adminId, adminId, adminId);
+    } else if (createdBy) {
+      query += " AND createdBy = ?";
+      params.push(createdBy);
+    }
   }
+
+  if (branchId && Number(branchId) > 0) {
+    query += " AND (branchId = ? OR branchId = 0 OR branchId IS NULL)";
+    params.push(branchId);
+  }
+
+  query += " ORDER BY id DESC";
 
   const [plans] = await pool.query(query, params);
 

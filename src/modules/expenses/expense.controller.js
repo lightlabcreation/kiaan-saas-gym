@@ -1,6 +1,7 @@
 import {
   addExpenseService,
   listExpensesService,
+  getMonthlyExpensesService,
   monthlyExpenseSummaryService,
 } from "./expense.service.js";
 
@@ -25,6 +26,19 @@ export const listExpenses = async (req, res, next) => {
     const adminId = req.user?.adminId || req.user?.id;
     const list = await listExpensesService(adminId, branchId, startDate, endDate);
     res.json({ success: true, expenses: list });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getMonthlyExpenses = async (req, res, next) => {
+  try {
+    const adminId = req.user?.adminId || req.user?.id;
+    const branchId = req.query.branchId ? parseInt(req.query.branchId) : 0;
+    const month = req.query.month || new Date().toISOString().slice(0, 7);
+
+    const data = await getMonthlyExpensesService(adminId, branchId, month);
+    res.json({ success: true, ...data });
   } catch (err) {
     next(err);
   }

@@ -149,12 +149,12 @@ model dietplanassignment {
 }
 
 model expense {
-  id        Int      @id @default(autoincrement())
-  title     String
-  category  String
-  amount    Float
-  date      DateTime @default(now())
-  branchId  Int
+  id          Int      @id @default(autoincrement())
+  title       String
+  category    String
+  amount      Float
+  date        DateTime @default(now())
+  branchId    Int
   notes       String?
   description String?  @db.VarChar(255)
   paymentMode String?  @default("Cash") @db.VarChar(50)
@@ -368,23 +368,23 @@ model notificationlog {
 }
 
 model payment {
-  id               Int       @id @default(autoincrement())
-  memberId         Int
-  planId           Int?      // references memberplan.id (not plan)
-  memberplanId     Int?
-  amount           Float
-  paymentDate      DateTime  @default(now())
-  invoiceNo        String    @unique(map: "Payment_invoiceNo_key")
-  gstAmount        Float?
-  gstPercent       Float?
-  collectedByName  String?   @db.VarChar(255)
-  collectedByRole  String?   @db.VarChar(100)
-  paymentMode      String?   @default("Cash") @db.VarChar(50)
-  transactionId    String?   @db.VarChar(100)
+  id                Int      @id @default(autoincrement())
+  memberId          Int
+  planId            Int? // references memberplan.id (not plan)
+  memberplanId      Int?
+  amount            Float
+  paymentDate       DateTime @default(now())
+  invoiceNo         String   @unique(map: "Payment_invoiceNo_key")
+  gstAmount         Float?
+  gstPercent        Float?
+  collectedByName   String?  @db.VarChar(255)
+  collectedByRole   String?  @db.VarChar(100)
+  paymentMode       String?  @default("Cash") @db.VarChar(50)
+  transactionId     String?  @db.VarChar(100)
   paymentProofImage String?  @db.VarChar(500)
-  status           String?   @default("Approved") @db.VarChar(50)
-  rejectionRemarks String?   @db.Text
-  member           member    @relation(fields: [memberId], references: [id], map: "Payment_memberId_fkey")
+  status            String?  @default("Approved") @db.VarChar(50)
+  rejectionRemarks  String?  @db.Text
+  member            member   @relation(fields: [memberId], references: [id], map: "Payment_memberId_fkey")
 
   @@index([memberId], map: "Payment_memberId_idx")
   @@index([planId], map: "Payment_planId_idx")
@@ -606,56 +606,56 @@ model unified_bookings {
 }
 
 model user {
-  id                           Int             @id @default(autoincrement())
-  adminId                      Int?
-  fullName                     String
-  email                        String          @unique(map: "User_email_key")
-  password                     String
-  phone                        String?
-  roleId                       Int
-  branchId                     Int?
-  createdAt                    DateTime        @default(now())
-  address                      String?
-  description                  String?
-  duration                     String?
-  gymName                      String?
-  planName                     String?
-  price                        String?
-  status                       String?
-  dateOfBirth                  DateTime?       @db.Date
-  gender                       String?         @db.VarChar(50)
-  address_street               String?
-  address_city                 String?
-  address_state                String?
-  address_zip                  String?         @db.VarChar(50)
-  profileImage                 String?         @db.Text
-  gstNumber                    String?         @db.VarChar(50)
-  tax                          Decimal?        @db.Decimal(10, 2)
-  gymAddress                   String?         @db.Text
-  licenseExpiryDate            DateTime?
-  licenseKey                   String?         @db.VarChar(255)
-  whatsappPlan                 String          @default("Basic") @db.VarChar(50)
-  permissions                  String?         @db.LongText
-  visiblePassword              String?         @db.VarChar(255)
-  whatsappCredits              Int             @default(0)
-  emailCredits                 Int             @default(0)
-  isTrial                      Boolean         @default(false)
+  id                Int       @id @default(autoincrement())
+  adminId           Int?
+  fullName          String
+  email             String    @unique(map: "User_email_key")
+  password          String
+  phone             String?
+  roleId            Int
+  branchId          Int?
+  createdAt         DateTime  @default(now())
+  address           String?
+  description       String?
+  duration          String?
+  gymName           String?
+  planName          String?
+  price             String?
+  status            String?
+  dateOfBirth       DateTime? @db.Date
+  gender            String?   @db.VarChar(50)
+  address_street    String?
+  address_city      String?
+  address_state     String?
+  address_zip       String?   @db.VarChar(50)
+  profileImage      String?   @db.Text
+  gstNumber         String?   @db.VarChar(50)
+  tax               Decimal?  @db.Decimal(10, 2)
+  gymAddress        String?   @db.Text
+  licenseExpiryDate DateTime?
+  licenseKey        String?   @db.VarChar(255)
+  whatsappPlan      String    @default("Basic") @db.VarChar(50)
+  permissions       String?   @db.LongText
+  visiblePassword   String?   @db.VarChar(255)
+  whatsappCredits   Int       @default(0)
+  emailCredits      Int       @default(0)
+  isTrial           Boolean   @default(false)
 
-  trialStartDate               DateTime?       @db.DateTime(0)
-  trialEndDate                 DateTime?       @db.DateTime(0)
-  gracePeriodEndDate           DateTime?       @db.DateTime(0)
-  subscriptionPlan             String?         @default("Basic") @db.VarChar(50)
-  trialStatus                  String?         @default("None") @db.VarChar(50)
+  trialStartDate               DateTime?                  @db.DateTime(0)
+  trialEndDate                 DateTime?                  @db.DateTime(0)
+  gracePeriodEndDate           DateTime?                  @db.DateTime(0)
+  subscriptionPlan             String?                    @default("Basic") @db.VarChar(50)
+  trialStatus                  String?                    @default("None") @db.VarChar(50)
   tenantIntegrationSettings    tenantintegrationsettings?
   alert                        alert[]
-  branch_branch_adminIdTouser  branch[]        @relation("branch_adminIdTouser")
+  branch_branch_adminIdTouser  branch[]                   @relation("branch_adminIdTouser")
   classschedule                classschedule[]
   leads                        leads[]
   member                       member[]
   saas_payments                saas_payments[]
   session                      session[]
-  branch_user_branchIdTobranch branch?         @relation("user_branchIdTobranch", fields: [branchId], references: [id], map: "User_branchId_fkey")
-  role                         role            @relation(fields: [roleId], references: [id], map: "User_roleId_fkey")
+  branch_user_branchIdTobranch branch?                    @relation("user_branchIdTobranch", fields: [branchId], references: [id], map: "User_branchId_fkey")
+  role                         role                       @relation(fields: [roleId], references: [id], map: "User_roleId_fkey")
 
   @@index([branchId], map: "User_branchId_idx")
   @@index([roleId], map: "User_roleId_idx")
@@ -717,7 +717,7 @@ model message_templates {
   isActive  Boolean  @default(true)
   variables Json?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt @db.DateTime(0)
 }
 
 model template_audit_logs {
@@ -742,7 +742,6 @@ model credit_packages {
   createdAt   DateTime? @default(now()) @db.DateTime(0)
 }
 
-
 model leads {
   id                Int       @id @default(autoincrement())
   adminId           Int?
@@ -755,7 +754,7 @@ model leads {
   assignedToStaffId Int?
   notes             String?   @db.Text
   createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  updatedAt         DateTime  @default(now()) @updatedAt @db.DateTime(0)
   branchId          Int?
   followUpDate      DateTime?
   leadType          String?   @default("GYM") @db.VarChar(50)
@@ -823,7 +822,7 @@ model tenantintegrationsettings {
   lastTestMessage       String?   @db.Text
   verifiedAt            DateTime? @db.DateTime(0)
   createdAt             DateTime  @default(now()) @db.Timestamp(0)
-  updatedAt             DateTime  @updatedAt @db.Timestamp(0)
+  updatedAt             DateTime  @default(now()) @updatedAt @db.Timestamp(0)
   user                  user      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
@@ -1083,7 +1082,7 @@ model app_notification {
   readAt        DateTime?
   priority      String    @default("NORMAL") @db.VarChar(50)
   createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @default(now()) @updatedAt
+  updatedAt     DateTime  @default(now()) @updatedAt @db.DateTime(0)
 
   @@index([tenantId])
   @@index([receiverId])

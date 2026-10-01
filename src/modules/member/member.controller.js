@@ -21,6 +21,7 @@ import {
 } from "./member.service.js";
 
 import { getIO } from "../../config/socket.js";
+import { logAudit } from "../auditLog/auditLog.service.js";
 
 export const createMember = async (req, res, next) => {
   try {
@@ -76,6 +77,19 @@ export const createMember = async (req, res, next) => {
       console.warn("Socket emission notice:", socErr.message);
     }
 
+    logAudit({
+      req,
+      adminId: payload.adminId || req.user?.adminId || req.user?.id,
+      action: "MEMBER_CREATE",
+      module: "MEMBERS",
+      resourceType: "Member",
+      resourceId: m?.id,
+      description: `Created new member: ${m?.fullName || payload.fullName} (${m?.email || payload.email || 'No email'})`,
+      status: "SUCCESS",
+      severity: "INFO",
+      newValue: { id: m?.id, fullName: m?.fullName, email: m?.email, phone: m?.phone, branchId: m?.branchId }
+    });
+
     res.json({
       success: true,
       message: "Member created successfully",
@@ -107,6 +121,18 @@ export const renewMembershipPlan = async (req, res, next) => {
     const payload = { ...req.body, paymentProofImage, transactionId };
     const data = await renewMembershipService(memberId, payload);
 
+    logAudit({
+      req,
+      adminId: req.user?.adminId || req.user?.id,
+      action: "MEMBERSHIP_RENEW",
+      module: "PAYMENTS",
+      resourceType: "Member",
+      resourceId: memberId,
+      description: `Renewed membership for member #${memberId} (Plan ID: ${planId}, Mode: ${paymentMode}, Amount: ${amountPaid})`,
+      status: "SUCCESS",
+      severity: "INFO"
+    });
+
     res.json({
       success: true,
       message: "Membership renewed successfully",
@@ -116,6 +142,7 @@ export const renewMembershipPlan = async (req, res, next) => {
     next(err);
   }
 };
+
 
 
 export const listMembers = async (req, res, next) => {
@@ -196,6 +223,19 @@ export const updateMember = async (req, res, next) => {
 
     const updated = await updateMemberService(id, data);
 
+    logAudit({
+      req,
+      adminId: req.user?.adminId || req.user?.id,
+      action: "MEMBER_UPDATE",
+      module: "MEMBERS",
+      resourceType: "Member",
+      resourceId: id,
+      description: `Updated member profile for #${id} (${data.fullName || updated?.fullName || 'Member'})`,
+      status: "SUCCESS",
+      severity: "INFO",
+      newValue: data
+    });
+
     res.json({
       success: true,
       message: "Member updated successfully",
@@ -212,6 +252,19 @@ export const deleteMember = async (req, res, next) => {
     const id = parseInt(req.params.id);
 
     await deleteMemberService(id);
+
+    logAudit({
+      req,
+      adminId: req.user?.adminId || req.user?.id,
+      action: "MEMBER_DEACTIVATE",
+      module: "MEMBERS",
+      resourceType: "Member",
+      resourceId: id,
+      description: `Deactivated member ID #${id}`,
+      status: "SUCCESS",
+      severity: "WARNING"
+    });
+
     res.json({
       success: true,
       message: "Member deactivated successfully",
@@ -479,7 +532,7 @@ export const assignTrainerToMemberController = async (req, res, next) => {
 export const searchMembersController = async (req, res, next) => {
   try {
     const { q, limit = 10 } = req.query;
-    if (!q || q.trim().length < 2) {
+    if (!q || q.trim().length < 1) {
       return res.json({ success: true, members: [] });
     }
 

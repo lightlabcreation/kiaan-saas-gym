@@ -1,4 +1,5 @@
 import { createAppSettingsService, deleteAppSettingsService, getAllAppSettingsService, getAppSettingsByAdminIdService, getAppSettingsByIdService, updateAppSettingsService } from "./appSetting.service.js";
+import { logAudit } from "../auditLog/auditLog.service.js";
 
 export const createAppSettingsController = async (req, res) => {
   try {
@@ -6,6 +7,18 @@ export const createAppSettingsController = async (req, res) => {
     const file = req.files?.logo || null;
 
     const data = await createAppSettingsService(adminId, req.body, file);
+
+    logAudit({
+      req,
+      adminId,
+      action: "SETTINGS_CREATE",
+      module: "SETTINGS",
+      resourceType: "AppSettings",
+      resourceId: data?.id,
+      description: "Configured initial gym app settings",
+      status: "SUCCESS",
+      severity: "INFO"
+    });
 
     res.status(201).json({
       success: true,
@@ -24,10 +37,23 @@ export const createAppSettingsController = async (req, res) => {
 export const updateAppSettingsController = async (req, res) => {
   try {
     const { id } = req.params;
-    const { adminId = null } = req.body;
+    const { adminId = null, currency } = req.body;
     const file = req.files?.logo || null;
 
     const data = await updateAppSettingsService(id, adminId, req.body, file);
+
+    logAudit({
+      req,
+      adminId: adminId || req.user?.adminId || req.user?.id,
+      action: currency ? "CURRENCY_UPDATE" : "SETTINGS_UPDATE",
+      module: "SETTINGS",
+      resourceType: "AppSettings",
+      resourceId: id,
+      description: currency ? `Updated system currency preference to ${currency}` : `Updated gym profile and business details for settings #${id}`,
+      status: "SUCCESS",
+      severity: "INFO",
+      newValue: req.body
+    });
 
     res.json({
       success: true,

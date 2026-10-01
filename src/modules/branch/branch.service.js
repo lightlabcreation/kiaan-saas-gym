@@ -8,6 +8,28 @@ export const createBranchService = async ({ name, address, phone, status, adminI
   
   const finalAdminId = adminId || userId || null;
 
+  // Check Admin Plan Branch Limit
+  if (finalAdminId) {
+    const [adminUser] = await pool.query("SELECT planName FROM user WHERE id = ?", [finalAdminId]);
+    const planName = (adminUser[0]?.planName || '7-Day Free Trial').trim();
+
+    let maxBranches = 1; // Default Free Trial & Starter: 1 Branch
+    const nameLower = planName.toLowerCase();
+    if (nameLower.includes('growth') || planName.includes('1299')) maxBranches = 2;
+    else if (nameLower.includes('pro') || planName.includes('1499')) maxBranches = 5;
+    else if (nameLower.includes('custom') || nameLower.includes('enterprise')) maxBranches = 99999;
+
+    const [branchCount] = await pool.query("SELECT COUNT(*) as currentCount FROM branch WHERE adminId = ?", [finalAdminId]);
+    const currentCount = branchCount[0]?.currentCount || 0;
+
+    if (currentCount >= maxBranches) {
+      throw {
+        status: 400,
+        message: `Branch limit reached! Your ${planName} plan allows a maximum of ${maxBranches} gym branch(es). Please upgrade your subscription.`
+      };
+    }
+  }
+
   // Check unique branch name
   const [exists] = await pool.query(
     "SELECT id FROM branch WHERE name = ?",

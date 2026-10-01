@@ -129,6 +129,15 @@ const validateMemberPlanId = async (memberPlanId) => {
 //   return rows[0];
 // };
 
+// Ensure currency column exists in app_settings table
+(async () => {
+  try {
+    await pool.query(`ALTER TABLE app_settings ADD COLUMN currency VARCHAR(10) DEFAULT 'INR'`);
+  } catch (err) {
+    // Column already exists
+  }
+})();
+
 export const createAppSettingsService = async (adminId, data, file) => {
   let logoUrl = null;
 
@@ -162,15 +171,16 @@ export const createAppSettingsService = async (adminId, data, file) => {
   /* CREATE SETTINGS */
   const [result] = await pool.query(
     `INSERT INTO app_settings 
-     (logo, gym_name,description, url, memberPlanId, adminId)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+     (logo, gym_name, description, url, memberPlanId, adminId, currency)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       logoUrl ?? null,
       data.gym_name ?? null,
       data.description ?? null,
       data.url ?? null,
       validMemberPlanId,
-      validAdminId
+      validAdminId,
+      data.currency ?? "INR"
     ]
   );
 
@@ -219,10 +229,10 @@ export const updateAppSettingsService = async (id, adminId, data, file) => {
   ) {
     finalMemberPlanId = await validateMemberPlanId(data.memberPlanId);
   }
-const finalGymName =
-  data.gym_name !== undefined && data.gym_name !== ""
-    ? data.gym_name
-    : existing.gym_name;
+  const finalGymName =
+    data.gym_name !== undefined && data.gym_name !== ""
+      ? data.gym_name
+      : existing.gym_name;
   /* TEXT FIELDS */
   const finalDescription =
     data.description !== undefined && data.description !== ""
@@ -234,6 +244,11 @@ const finalGymName =
       ? data.url
       : existing.url;
 
+  const finalCurrency =
+    data.currency !== undefined && data.currency !== ""
+      ? data.currency
+      : existing.currency || "INR";
+
   await pool.query(
     `UPDATE app_settings
      SET 
@@ -242,7 +257,8 @@ const finalGymName =
        description = ?,
        url = ?,
        memberPlanId = ?,
-       adminId = ?
+       adminId = ?,
+       currency = ?
      WHERE id = ?`,
     [
       logoUrl,
@@ -251,6 +267,7 @@ const finalGymName =
       finalUrl,
       finalMemberPlanId,
       finalAdminId,
+      finalCurrency,
       settingsId
     ]
   );

@@ -6,6 +6,7 @@ const ensureExpenseTable = async () => {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS expense (
         id INT AUTO_INCREMENT PRIMARY KEY,
+        adminId INT NULL,
         branchId INT NULL,
         title VARCHAR(191) DEFAULT 'Expense',
         category VARCHAR(100) DEFAULT 'Miscellaneous',
@@ -18,6 +19,7 @@ const ensureExpenseTable = async () => {
     `);
 
     // Ensure columns exist if table schema differs
+    await pool.query(`ALTER TABLE expense ADD COLUMN adminId INT NULL`).catch(() => {});
     await pool.query(`ALTER TABLE expense ADD COLUMN description VARCHAR(255) NULL`).catch(() => {});
     await pool.query(`ALTER TABLE expense ADD COLUMN title VARCHAR(191) DEFAULT 'Expense'`).catch(() => {});
     await pool.query(`ALTER TABLE expense ADD COLUMN category VARCHAR(100) DEFAULT 'Miscellaneous'`).catch(() => {});
@@ -42,13 +44,14 @@ const resolveBranchId = async (branchId, adminId) => {
 export const addExpenseService = async (data) => {
   await ensureExpenseTable();
   const validBranchId = await resolveBranchId(data.branchId, data.adminId);
-  const { category = "Miscellaneous", description = "", amount = 0, date = new Date(), paymentMode = "Cash" } = data;
-  const titleText = description || category || "Operating Expense";
+  const { title = "", category = "Miscellaneous", description = "", amount = 0, date = new Date(), paymentMode = "Cash" } = data;
+  const descText = description || title || "";
+  const titleText = title || description || category || "Operating Expense";
   const sql = `
-    INSERT INTO expense (branchId, title, description, category, amount, date, paymentMode)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO expense (adminId, branchId, title, description, category, amount, date, paymentMode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
-  const [result] = await pool.query(sql, [validBranchId, titleText, description, category, amount, date, paymentMode]);
+  const [result] = await pool.query(sql, [data.adminId || null, validBranchId, titleText, descText, category, amount, date, paymentMode]);
 
   const [expense] = await pool.query(
     `SELECT e.*, IFNULL(e.description, e.title) AS description, IFNULL(b.name, 'Main Branch') AS branchName 
@@ -65,13 +68,24 @@ export const addExpenseService = async (data) => {
 export const listExpensesService = async (adminId, branchId, startDate, endDate) => {
   await ensureExpenseTable();
   const sql = `
-    SELECT e.*, IFNULL(e.description, e.title) AS description, IFNULL(b.name, 'Main Branch') AS branchName
+    SELECT e.*, IFNULL(e.description, IFNULL(e.title, e.category)) AS description, IFNULL(b.name, 'Main Branch') AS branchName
     FROM expense e
-    INNER JOIN branch b ON e.branchId = b.id
-    WHERE (? = 0 OR e.branchId = ?) AND b.adminId = ? AND e.date BETWEEN ? AND ?
+    LEFT JOIN branch b ON e.branchId = b.id
+    WHERE (? = 0 OR e.branchId = ? OR e.branchId IS NULL) 
+      AND (e.adminId = ? OR b.adminId = ? OR ? IS NULL OR ? = 0) 
+      AND e.date BETWEEN ? AND ?
     ORDER BY e.date DESC, e.id DESC
   `;
-  const [expenses] = await pool.query(sql, [branchId || 0, branchId || 0, adminId, startDate, endDate]);
+  const [expenses] = await pool.query(sql, [
+    branchId || 0,
+    branchId || 0,
+    adminId,
+    adminId,
+    adminId,
+    adminId,
+    startDate,
+    endDate
+  ]);
 
   // Also fetch Staff Salaries within this period as automatic expense entries
   const [salaries] = await pool.query(
@@ -101,17 +115,62 @@ export const listExpensesService = async (adminId, branchId, startDate, endDate)
   return combined;
 };
 
+// ----- MONTHLY EXPENSES WITH SUMMARY -----
+export const getMonthlyExpensesService = async (adminId, branchId, monthStr) => {
+  await ensureExpenseTable();
+  
+  let year, month;
+  if (monthStr && monthStr.includes("-")) {
+    const parts = monthStr.split("-");
+    year = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10);
+  } else {
+    const now = new Date();
+    year = now.getFullYear();
+    month = now.getMonth() + 1;
+  }
+  
+  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")} 23:59:59`;
+
+  const expenses = await listExpensesService(adminId, branchId || 0, startDate, endDate);
+
+  let autoSalaryTotal = 0;
+  let manualOperatingTotal = 0;
+
+  expenses.forEach((item) => {
+    const amt = Number(item.amount) || 0;
+    if (item.source === "AUTO_SALARY") {
+      autoSalaryTotal += amt;
+    } else {
+      manualOperatingTotal += amt;
+    }
+  });
+
+  const totalExpenses = autoSalaryTotal + manualOperatingTotal;
+
+  return {
+    expenses,
+    summary: {
+      totalExpenses,
+      autoSalaryTotal,
+      manualOperatingTotal
+    }
+  };
+};
+
 // ----- MONTHLY EXPENSE SUMMARY -----
 export const monthlyExpenseSummaryService = async (adminId, branchId) => {
   await ensureExpenseTable();
   const sql = `
     SELECT DATE_FORMAT(e.date, '%Y-%m') AS month, SUM(e.amount) AS total
     FROM expense e
-    INNER JOIN branch b ON e.branchId = b.id
-    WHERE (? = 0 OR e.branchId = ?) AND b.adminId = ?
+    LEFT JOIN branch b ON e.branchId = b.id
+    WHERE (? = 0 OR e.branchId = ?) AND (e.adminId = ? OR b.adminId = ?)
     GROUP BY DATE_FORMAT(e.date, '%Y-%m')
     ORDER BY month DESC
   `;
-  const [summary] = await pool.query(sql, [branchId || 0, branchId || 0, adminId]);
+  const [summary] = await pool.query(sql, [branchId || 0, branchId || 0, adminId, adminId]);
   return summary;
 };

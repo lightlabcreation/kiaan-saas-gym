@@ -1,55 +1,31 @@
 import { Router } from "express";
-import { verifyToken } from "../../middlewares/auth.js";
 import {
-  recordPayment,
-  createRazorpayOrder,
-  verifyMemberPayment,
-  paymentHistory,
-  allPayments,
-  verifyManualPayment
+  getAvailableMethods,
+  createPaymentOrder,
+  verifyPayment,
+  handlePayUCallback,
+  handleWebhook,
+  getTransactions,
+  getAdminGateways,
+  updateAdminGateway,
+  refundPayment
 } from "./payment.controller.js";
 
 const router = Router();
 
-// Record new payment
-router.post(
-  "/create",
-  verifyToken(["Admin", "Superadmin", "receptionist", "Staff"]),
-  recordPayment
-);
+// Public & Methods endpoints
+router.get("/methods/available", getAvailableMethods);
+router.post("/create-order", createPaymentOrder);
+router.post("/verify", verifyPayment);
+router.all("/verify/payu-callback", handlePayUCallback);
 
-// Create Razorpay Order
-router.post(
-  "/create-razorpay-order",
-  verifyToken(["Admin", "Superadmin", "member", "Staff"]),
-  createRazorpayOrder
-);
+// Webhook endpoint (Raw body or JSON parsed)
+router.all("/webhook/:provider", handleWebhook);
 
-// Verify Razorpay Payment
-router.post(
-  "/verify-member-payment",
-  verifyToken(["Admin", "Superadmin", "member", "Staff"]),
-  verifyMemberPayment
-);
-
-// Member payment history
-router.get(
-  "/member/:memberId",
-  verifyToken(["Admin", "Superadmin", "receptionist", "member", "Staff"]),
-  paymentHistory
-);
-
-// All payments of a branch
-router.get(
-  "/branch/:branchId",
-  verifyToken(["Admin", "Superadmin", "receptionist", "Staff"]),
-  allPayments
-);
-// Verify Manual Payment
-router.post(
-  "/verify-manual",
-  verifyToken(["Admin", "Superadmin", "Staff"]),
-  verifyManualPayment
-);
+// History & Admin Gateway endpoints
+router.get("/transactions", getTransactions);
+router.get("/admin/gateways", getAdminGateways);
+router.put("/admin/gateways", updateAdminGateway);
+router.post("/refund", refundPayment);
 
 export default router;

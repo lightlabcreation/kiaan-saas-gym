@@ -13,6 +13,9 @@ export const pool = mysql
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+    ssl: process.env.DB_HOST?.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
   })
   .promise();
 
@@ -61,6 +64,31 @@ async function runStartupMigrations() {
     await pool.query("ALTER TABLE plan ADD COLUMN discountPercent DECIMAL(5,2) DEFAULT 0");
   } catch (e) {
     // Column already exists — safe to ignore
+  }
+
+  // ── Database Performance Indexing ──
+  const perfIndexes = [
+    "CREATE INDEX idx_user_admin_role_status ON user (adminId, roleId, status)",
+    "CREATE INDEX idx_user_email ON user (email)",
+    "CREATE INDEX idx_member_admin_branch ON member (adminId, branchId, status)",
+    "CREATE INDEX idx_member_user ON member (userId)",
+    "CREATE INDEX idx_member_membership_dates ON member (membershipFrom, membershipTo)",
+    "CREATE INDEX idx_staff_admin_branch ON staff (adminId, branchId, status)",
+    "CREATE INDEX idx_staff_user ON staff (userId)",
+    "CREATE INDEX idx_payment_admin_date ON payment (adminId, paymentDate)",
+    "CREATE INDEX idx_payment_member ON payment (memberId)",
+    "CREATE INDEX idx_ma_member_checkin ON memberattendance (memberId, checkIn)",
+    "CREATE INDEX idx_sa_staff_checkin ON staffattendance (staffId, checkIn)",
+    "CREATE INDEX idx_expenses_admin_date ON expenses (adminId, date)",
+    "CREATE INDEX idx_purchase_email_status ON purchase (email, status)"
+  ];
+
+  for (const sql of perfIndexes) {
+    try {
+      await pool.query(sql);
+    } catch (_) {
+      // Index already exists or column not present — safe to ignore
+    }
   }
 
   // Create app_notification table
@@ -322,11 +350,62 @@ async function runStartupMigrations() {
       );
     `);
 
+    // ── Payment Gateway & Transaction Tables ──
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payment_transaction (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        transactionId VARCHAR(100) NOT NULL UNIQUE,
+        userId INT NULL,
+        tenantId INT NULL,
+        planId INT NULL,
+        provider ENUM('RAZORPAY', 'STRIPE', 'PAYPAL', 'PAYU') NOT NULL,
+        paymentMethod VARCHAR(50) DEFAULT 'CREDIT_CARD',
+        providerOrderId VARCHAR(255) NULL,
+        providerPaymentId VARCHAR(255) NULL,
+        amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+        currency VARCHAR(10) DEFAULT 'INR',
+        status ENUM('Pending', 'Processing', 'Successful', 'Failed', 'Cancelled', 'Refunded') DEFAULT 'Pending',
+        subscriptionId VARCHAR(100) NULL,
+        invoiceId VARCHAR(100) NULL,
+        metadata JSON NULL,
+        rawProviderResponse JSON NULL,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_transactionId (transactionId),
+        INDEX idx_userId (userId),
+        INDEX idx_tenantId (tenantId),
+        INDEX idx_provider (provider),
+        INDEX idx_status (status)
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payment_gateway_config (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tenantId INT NOT NULL,
+        provider ENUM('RAZORPAY', 'STRIPE', 'PAYPAL', 'PAYU') NOT NULL,
+        isEnabled BOOLEAN DEFAULT FALSE,
+        isTestMode BOOLEAN DEFAULT TRUE,
+        keyId VARCHAR(255) NULL,
+        secretKey VARCHAR(500) NULL,
+        webhookSecret VARCHAR(500) NULL,
+        merchantSalt VARCHAR(500) NULL,
+        extraConfig JSON NULL,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_tenant_provider (tenantId, provider),
+        INDEX idx_tenantId (tenantId)
+      );
+    `);
+
     try {
       await pool.query("ALTER TABLE booking_requests ADD COLUMN paymentMode VARCHAR(50) NULL");
     } catch (_) {}
     try {
       await pool.query("ALTER TABLE booking_requests ADD COLUMN paymentProofImage VARCHAR(500) NULL");
+    } catch (_) {}
+    try {
+      await pool.query("ALTER TABLE dietplan ADD COLUMN adminId INT NULL");
     } catch (_) {}
 
     console.log("✅ Tables notification_queue, notification_delivery_log, app_notification_archive, password_reset_otp, auth_audit_log, token_blacklist created or verified.");
@@ -371,20 +450,25 @@ async function runStartupMigrations() {
     console.error("❌ Failed to create support tables:", e.message);
   }
 
-  // ── Auto-update 1 RS plan to 599 RS ──
+  // ── Auto-update plan prices and clean names ──
   try {
-    await pool.query(`
-      UPDATE plan 
-      SET price = 599, name = IF(name = 'Starter 1' OR name = 'Starter 1 RS' OR name = 'Starter 1 ', 'Starter 599', name)
-      WHERE price = 1 OR price = 1.00 OR name = 'Starter 1'
-    `);
-    await pool.query(`
-      UPDATE plan 
-      SET name = '7-Day Free Trial', duration = '7 Days', description = '7 Days full feature trial access'
-      WHERE price = 0 OR category = 'Trial' OR name LIKE '%1 Day%' OR name LIKE '%1-Day%'
-    `);
-    console.log("✅ Free Trial plan updated to 7 Days.");
+    const [allPlans] = await pool.query(`SELECT id, name, price, category FROM plan ORDER BY id ASC`);
+    if (allPlans && allPlans.length > 0) {
+      const nonTrial = allPlans.filter(p => p.price > 0 || (p.name && !p.name.toLowerCase().includes('trial')));
+      if (nonTrial.length >= 3) {
+        await pool.query(`UPDATE plan SET name = 'Starter', price = 999, category = 'BASIC' WHERE id = ?`, [nonTrial[0].id]);
+        await pool.query(`UPDATE plan SET name = 'Growth', price = 1299, category = 'GROWTH' WHERE id = ?`, [nonTrial[1].id]);
+        await pool.query(`UPDATE plan SET name = 'Pro', price = 1499, category = 'PRO' WHERE id = ?`, [nonTrial[2].id]);
+      }
+      const trial = allPlans.filter(p => p.price === 0 || (p.name && p.name.toLowerCase().includes('trial')));
+      if (trial.length > 0) {
+        await pool.query(`UPDATE plan SET name = '7-Day Free Trial', duration = '7 Days', description = '7 Days full feature trial access', category = 'TRIAL' WHERE id = ?`, [trial[0].id]);
+      }
+    }
+    console.log("✅ Plan prices and names updated to Starter (999), Growth (1299), Pro (1499).");
   } catch (planErr) {
     console.error("Notice: Plan price update notice:", planErr?.message);
   }
 }
+
+

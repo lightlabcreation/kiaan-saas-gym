@@ -51,6 +51,8 @@ import creditsRoutes from "../modules/credits/credits.routes.js";
 import messageTemplateRoutes from "../modules/messageTemplates/messageTemplate.routes.js";
 import integrationsRoutes from "../modules/integrations/integrations.routes.js";
 import supportRoutes from "../modules/support/support.routes.js";
+import auditLogRoutes from "../modules/auditLog/auditLog.routes.js";
+import backupRoutes from "../modules/backup/backup.routes.js";
 
 const router = Router();
 
@@ -113,5 +115,8 @@ router.use("/app-notifications", appNotificationRoutes);
 router.use("/v1/message-templates", messageTemplateRoutes);
 router.use("/integrations", integrationsRoutes);
 router.use("/support", supportRoutes);
+router.use("/audit-logs", auditLogRoutes);
+router.use("/backups", backupRoutes);
+router.use("/master-admin/backups", backupRoutes);
 
 export default router;

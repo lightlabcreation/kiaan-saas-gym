@@ -18,6 +18,7 @@ export const createPlanService = async (data) => {
     "category",
     "duration",
     "discountPercent",
+    "planType",
   ];
 
   if (!data.name) throw { status: 400, message: "Plan name is required" };
@@ -68,16 +69,21 @@ export const createPlanService = async (data) => {
 /**************************************
  * LIST PLANS
  **************************************/
-export const listPlansService = async (duration) => {
-  let query = "SELECT * FROM plan";
+export const listPlansService = async (duration, planType) => {
+  let query = "SELECT * FROM plan WHERE 1=1";
   const params = [];
 
   if (duration) {
-    query += " WHERE duration = ?";
+    query += " AND duration = ?";
     params.push(duration);
   }
 
-  query += " ORDER BY id DESC";
+  if (planType) {
+    query += " AND planType = ?";
+    params.push(planType.toUpperCase());
+  }
+
+  query += " ORDER BY id ASC";
 
   const [rows] = await pool.query(query, params);
   return rows;

@@ -6,15 +6,17 @@ import { initTrialCronJobs } from "./cron/trial.cron.js";
 import { initNotificationQueueCron } from "./cron/notificationQueue.cron.js";
 import { initNotificationCleanupCron } from "./cron/notificationCleanup.cron.js";
 import { initOtpCleanupCron } from "./cron/otpCleanup.cron.js";
+import { initBackupCronJob } from "./cron/backup.cron.js";
 import { initSocket } from "./config/socket.js";
 
 import { pool } from "./config/db.js";
 
-// Initialize scheduled tasks
+// Initialize scheduled tasks (local gymsaas_db connected)
 initTrialCronJobs();
 initNotificationQueueCron();
 initNotificationCleanupCron();
 initOtpCleanupCron();
+initBackupCronJob();
 
 (async () => {
   try {
@@ -90,12 +92,35 @@ initOtpCleanupCron();
   } catch (e) {
     console.error("Equipment table setup error:", e.message);
   }
-  // ─────────────────────────────────────────────────────────────────────────
+    try {
+      const server = app.listen(ENV.port, () => {
+        console.log(`Server running on http://localhost:${ENV.port}`);
+      });
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error(`Port ${ENV.port} is already in use. Retrying in 1s...`);
+          setTimeout(() => {
+            server.close();
+            app.listen(ENV.port);
+          }, 1000);
+        } else {
+          console.error("Server startup error:", err);
+        }
+      });
 
-  const server = app.listen(ENV.port, () => {
-    console.log(`Server running on http://localhost:${ENV.port}`);
-  });
-  
-  // Initialize Socket.io
-  initSocket(server);
-})();// Checked by akriti
+      // Initialize Socket.io
+      initSocket(server);
+    } catch (err) {
+      console.error("Server listen error:", err);
+    }
+})();
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception thrown:", err);
+});
+
+

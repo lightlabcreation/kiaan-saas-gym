@@ -12,6 +12,7 @@ import {
   getTrainerByIdService 
 } from "./staff.service.js";
 import bcrypt from "bcryptjs";
+import { logAudit } from "../auditLog/auditLog.service.js";
 
 export const createStaff = async (req, res, next) => {
   try {
@@ -74,6 +75,19 @@ export const createStaff = async (req, res, next) => {
       exitDate: exitDate || null,
       profilePhoto: imageUrl || null,
       status,
+    });
+
+    logAudit({
+      req,
+      adminId,
+      action: "STAFF_CREATE",
+      module: "STAFF",
+      resourceType: "Staff",
+      resourceId: staff?.id,
+      description: `Created new staff member: ${fullName} (${email}, Role ID: ${roleId})`,
+      status: "SUCCESS",
+      severity: "INFO",
+      newValue: { id: staff?.id, fullName, email, phone, roleId, adminId }
     });
 
     res.json({
@@ -169,6 +183,19 @@ export const updateStaff = async (req, res, next) => {
 
     const staff = await updateStaffService(staffId, data);
 
+    logAudit({
+      req,
+      adminId: req.user?.adminId || req.user?.id,
+      action: "STAFF_UPDATE",
+      module: "STAFF",
+      resourceType: "Staff",
+      resourceId: staffId,
+      description: `Updated staff profile for #${staffId} (${data.fullName || 'Staff'})`,
+      status: "SUCCESS",
+      severity: "INFO",
+      newValue: data
+    });
+
     res.json({
       success: true,
       message: "Staff updated successfully",
@@ -217,6 +244,18 @@ export const deleteStaff = async (req, res, next) => {
     }
 
     await deleteStaffService(id);
+
+    logAudit({
+      req,
+      adminId: req.user?.adminId || req.user?.id,
+      action: "STAFF_DELETE",
+      module: "STAFF",
+      resourceType: "Staff",
+      resourceId: id,
+      description: `Deleted staff member ID #${id}`,
+      status: "SUCCESS",
+      severity: "WARNING"
+    });
 
     res.json({
       success: true,

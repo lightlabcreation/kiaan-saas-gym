@@ -40,17 +40,17 @@ export const createSubAdminService = async (data) => {
 
   // Insert into user with roleId = 9 (Subadmin)
   const [result] = await pool.query(
-    "INSERT INTO user (fullName, email, phone, password, visiblePassword, roleId, permissions, profileImage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [fullName, email, phone || null, hashedPassword, password, 9, perms, profileImage || null]
+    "INSERT INTO user (fullName, email, phone, password, roleId, permissions, profileImage) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [fullName, email, phone || null, hashedPassword, 9, perms, profileImage || null]
   );
 
-  return { id: result.insertId, fullName, email, phone, profileImage, permissions: perms, visiblePassword: password };
+  return { id: result.insertId, fullName, email, phone, profileImage, permissions: perms };
 };
 
 // Get all Subadmins
 export const getAllSubAdminsService = async () => {
   const [rows] = await pool.query(
-    "SELECT id, fullName, email, phone, profileImage, permissions, visiblePassword, createdAt FROM user WHERE roleId = 9 ORDER BY id DESC"
+    "SELECT id, fullName, email, phone, profileImage, permissions, createdAt FROM user WHERE roleId = 9 ORDER BY id DESC"
   );
   return rows;
 };
@@ -87,9 +87,6 @@ export const updateSubAdminService = async (id, data) => {
     const hashedPassword = await bcrypt.hash(password, salt);
     updates.push("password = ?");
     values.push(hashedPassword);
-    
-    updates.push("visiblePassword = ?");
-    values.push(password);
   }
 
   if (updates.length === 0) return { message: "Nothing to update" };
@@ -98,7 +95,7 @@ export const updateSubAdminService = async (id, data) => {
 
   await pool.query(`UPDATE user SET ${updates.join(", ")} WHERE id = ? AND roleId = 9`, values);
 
-  const [updated] = await pool.query("SELECT id, fullName, email, phone, profileImage, permissions, visiblePassword FROM user WHERE id = ?", [id]);
+  const [updated] = await pool.query("SELECT id, fullName, email, phone, profileImage, permissions FROM user WHERE id = ?", [id]);
   return updated[0];
 };
 
