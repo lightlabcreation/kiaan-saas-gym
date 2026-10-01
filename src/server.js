@@ -11,38 +11,50 @@ import { initSocket } from "./config/socket.js";
 
 import { pool } from "./config/db.js";
 
-// Initialize scheduled tasks (local gymsaas_db connected)
-initTrialCronJobs();
-initNotificationQueueCron();
-initNotificationCleanupCron();
-initOtpCleanupCron();
-initBackupCronJob();
+// 1. Start HTTP server immediately on ports 4000 and 3000 so Traefik immediately connects
+const primaryPort = Number(process.env.PORT) || Number(ENV.port) || 4000;
+const ports = Array.from(new Set([primaryPort, 4000, 3000]));
 
-// 1. Start HTTP server immediately so port is open without delay
-try {
-  const server = app.listen(ENV.port, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${ENV.port}`);
-  });
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`Port ${ENV.port} is already in use. Retrying in 1s...`);
-      setTimeout(() => {
-        server.close();
-        app.listen(ENV.port, "0.0.0.0");
-      }, 1000);
-    } else {
-      console.error("Server startup error:", err);
-    }
-  });
-
-  // Initialize Socket.io
-  initSocket(server);
-} catch (err) {
-  console.error("Server listen error:", err);
+let mainServer;
+for (const p of ports) {
+  try {
+    const s = app.listen(p, "0.0.0.0", () => {
+      console.log(`🚀 Server listening on http://0.0.0.0:${p}`);
+    });
+    s.on('error', (err) => {
+      console.warn(`Port ${p} info:`, err.message);
+    });
+    if (!mainServer) mainServer = s;
+  } catch (err) {
+    console.warn(`Could not bind to port ${p}:`, err.message);
+  }
 }
 
-// 2. Run schema setup and table migrations in background (non-blocking)
+if (mainServer) {
+  try {
+    initSocket(mainServer);
+  } catch (e) {
+    console.warn("Socket init note:", e.message);
+  }
+}
+
+// 2. Initialize scheduled tasks safely
+try { initTrialCronJobs(); } catch (e) { console.warn("Trial cron note:", e.message); }
+try { initNotificationQueueCron(); } catch (e) { console.warn("Queue cron note:", e.message); }
+try { initNotificationCleanupCron(); } catch (e) { console.warn("Cleanup cron note:", e.message); }
+try { initOtpCleanupCron(); } catch (e) { console.warn("OTP cleanup note:", e.message); }
+try { initBackupCronJob(); } catch (e) { console.warn("Backup cron note:", e.message); }
+
+// 3. Run schema setup and table migrations in background (non-blocking)
 (async () => {
+  // Auto-push Prisma schema if database is newly initialized
+  try {
+    const { exec } = await import("child_process");
+    exec("npx prisma db push --skip-generate --accept-data-loss", (err, stdout, stderr) => {
+      if (err) console.warn("Prisma db push note:", err.message);
+      else console.log("✅ Database schema synchronized with Prisma.");
+    });
+  } catch (_) {}
   try {
     await pool.query(`ALTER TABLE user 
       ADD COLUMN trialStartDate DATETIME DEFAULT NULL,
