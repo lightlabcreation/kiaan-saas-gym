@@ -101,17 +101,27 @@ export const sendTemplatedNotification = async ({
     const templates = await getTemplates();
     const template = templates[eventKey];
     
-    if (!template || !template.isActive) {
-      return { success: false, reason: "Template not found or inactive" };
+    let subject = variables.title || variables.subject || "Notification";
+    let message = variables.Message || variables.message || "";
+    let channels = ["IN_APP", "EMAIL", "WHATSAPP"];
+
+    if (template && template.isActive) {
+      if (template.subject) subject = replaceVariables(template.subject, variables);
+      if (template.message) message = replaceVariables(template.message, variables);
+      if (template.channel) channels = template.channel.split(",").map(c => c.trim().toUpperCase());
+    }
+
+    // Always ensure ANNOUNCEMENT contains WHATSAPP channel
+    if (eventKey === "ANNOUNCEMENT" || eventKey === "announcement") {
+      subject = variables.title || subject || "Gym Announcement";
+      message = variables.Message || message;
+      if (!channels.includes("WHATSAPP")) channels.push("WHATSAPP");
+      if (!channels.includes("EMAIL")) channels.push("EMAIL");
+      if (!channels.includes("IN_APP")) channels.push("IN_APP");
     }
     
-    const subject = replaceVariables(template.subject, variables);
-    const message = replaceVariables(template.message, variables);
-    
-    const channels = template.channel.split(",").map(c => c.trim().toUpperCase());
-    
     // In-App Notification
-    if (channels.includes("IN_APP")) {
+    if (channels.includes("IN_APP") || channels.includes("IN-APP")) {
       createAppNotification({
         tenantId: tenantId || 1, // fallback to Super Admin tenant if null
         receiverId,
@@ -135,7 +145,7 @@ export const sendTemplatedNotification = async ({
       const systemEvents = ['FORGOT_PASSWORD_OTP', 'PLAN_PURCHASED', 'PLAN_UPGRADE_REQUEST', 'SUBSCRIPTION_ACTIVATED'];
       const isSystemEvent = systemEvents.includes(eventKey);
 
-      dispatchNotification({
+      await dispatchNotification({
         category: eventKey.toLowerCase(),
         toEmail: receiverEmail,
         toPhone: receiverPhone,
@@ -145,7 +155,7 @@ export const sendTemplatedNotification = async ({
         customChannels: dispatchChannels,
         adminIdForCredits: tenantId,
         isSystemEvent
-      }).catch(err => console.error(`❌ Dispatch failed for ${eventKey}:`, err.message));
+      });
     }
     
     return { success: true };

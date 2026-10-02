@@ -1,5 +1,6 @@
 import { pool } from "../config/db.js";
-import { BrevoCredentialResolver, WhatsAppCredentialResolver } from "./credentialResolvers.js";
+import { BrevoCredentialResolver, WhatsAppCredentialResolver, SmtpCredentialResolver } from "./credentialResolvers.js";
+
 
 /**
  * Build styled HTML email with dynamic software name
@@ -125,6 +126,7 @@ export const dispatchNotification = async ({
   memberId,
   subject = "Gym Management — Gym Notification",
   message,
+  channels = null,
   customChannels = null,
   adminIdForCredits = null,
   isSystemEvent = false,
@@ -135,7 +137,7 @@ export const dispatchNotification = async ({
     return { success: false, reason: "Message is empty" };
   }
 
-  const activeChannels = customChannels || await getGlobalNotificationChannels(category);
+  const activeChannels = channels || customChannels || await getGlobalNotificationChannels(category);
   console.log(`📣 Dispatching '${category}' via channels:`, activeChannels);
 
   const results = { category, channels: activeChannels, email: null, whatsapp: null, inApp: null };
@@ -165,11 +167,13 @@ export const dispatchNotification = async ({
 
   // ── Load admin's custom credentials using new resolvers ──
   let tenantBrevoCreds = null;
+  let tenantSmtpCreds = null;
   let isTenantContext = false;
   
   if (adminId && !isSystemEvent) {
     isTenantContext = true;
     tenantBrevoCreds = await BrevoCredentialResolver.getTenantBrevoCredentials(adminId);
+    tenantSmtpCreds = await SmtpCredentialResolver.getTenantSmtpCredentials(adminId);
   }
 
   const isValidEmail = (email) => {
@@ -178,7 +182,7 @@ export const dispatchNotification = async ({
   };
 
   // ════════════════════════════════════════════
-  // 1.  EMAIL  →  Brevo HTTP API
+  // 1.  EMAIL  →  SMTP Nodemailer or Brevo HTTP API
   // ════════════════════════════════════════════
   if (activeChannels.includes("EMAIL") && toEmail) {
     if (!isValidEmail(toEmail)) {
@@ -186,62 +190,99 @@ export const dispatchNotification = async ({
       results.email = { success: false, reason: `Invalid recipient email format: ${toEmail}` };
     } else {
       try {
-      let brevoApiKey = null;
-      let mailFrom = null;
+      if (tenantSmtpCreds && tenantSmtpCreds.smtpEnabled) {
+        const nodemailer = (await import("nodemailer")).default;
+        const transporter = nodemailer.createTransport({
+          host: tenantSmtpCreds.host,
+          port: tenantSmtpCreds.port,
+          secure: tenantSmtpCreds.secure,
+          auth: tenantSmtpCreds.auth,
+          tls: { rejectUnauthorized: false }
+        });
 
-      if (isTenantContext && tenantBrevoCreds) {
-        brevoApiKey = tenantBrevoCreds.apiKey;
-        mailFrom = `${tenantBrevoCreds.senderName} <${tenantBrevoCreds.senderEmail}>`;
-      } else {
-        const platformCreds = BrevoCredentialResolver.getSuperAdminBrevoCredentials();
-        if (!platformCreds.apiKey) {
-           throw new Error("Platform BREVO_API_KEY is not configured.");
-        }
-        brevoApiKey = platformCreds.apiKey;
-        mailFrom = `${platformCreds.senderName} <${platformCreds.senderEmail}>`;
-      }
+        const senderName = tenantSmtpCreds.senderName || "Gym Owner";
+        const senderEmail = tenantSmtpCreds.senderEmail || tenantSmtpCreds.auth.user;
 
-      const clean = (val) => (val || "").toString().replace(/['"]/g, '').trim();
-      brevoApiKey = clean(brevoApiKey);
-
-      let senderName = "Kiaan Technology Pvt Ltd";
-      let senderEmail = "info@kiaantechnology.com";
-      const match = mailFrom.match(/(.*)<(.*)>/);
-      if (match) {
-          senderName = match[1].trim() || "Kiaan Technology Pvt Ltd";
-          senderEmail = match[2].trim() || "info@kiaantechnology.com";
-      } else if (mailFrom.trim()) {
-          senderEmail = mailFrom.trim();
-          senderName = process.env.MAIL_FROM_NAME || "Kiaan Technology Pvt Ltd";
-      }
-
-      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-        method: "POST",
-        headers: {
-          "api-key": brevoApiKey,
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify({
-          sender: { name: senderName, email: senderEmail },
-          replyTo: { name: senderName, email: isTenantContext && tenantBrevoCreds ? senderEmail : "info@kiaantechnology.com" },
-          to: [{ email: toEmail }],
+        const info = await transporter.sendMail({
+          from: `"${senderName}" <${senderEmail}>`,
+          to: toEmail,
           subject: subject,
-          htmlContent: buildEmailHtml(subject, message, dynamicSoftwareName),
-          textContent: message
-        })
-      });
+          text: message,
+          html: buildEmailHtml(subject, message, dynamicSoftwareName)
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        const errMsg = errorData.message || JSON.stringify(errorData);
-        if (errMsg.includes("unrecognised IP address") || errorData.code === "unauthorized") {
-          console.error(`🚨 BREVO SECURITY ALERT: IP Restriction active in Brevo account. Go to https://app.brevo.com/security/authorised_ips and click 'Deactivate for API keys' to allow all server IPs.`);
+        console.log("SMTP RESULT via Nodemailer:", {
+          NotificationType: category,
+          Recipient: toEmail,
+          Subject: subject,
+          MessageId: info.messageId || null,
+          Status: "Sent via SMTP Nodemailer",
+          SenderUsed: senderEmail
+        });
+
+        await pool.query(
+          `INSERT INTO notification_delivery_log (recipient, channel, notificationType, status, messageId) VALUES (?, 'EMAIL', ?, 'SENT', ?)`,
+          [toEmail, category, info.messageId || null]
+        );
+        results.email = { success: true, messageId: info.messageId || null };
+      } else {
+        let brevoApiKey = null;
+        let mailFrom = null;
+
+        if (isTenantContext && tenantBrevoCreds) {
+          brevoApiKey = tenantBrevoCreds.apiKey;
+          mailFrom = `${tenantBrevoCreds.senderName} <${tenantBrevoCreds.senderEmail}>`;
+        } else {
+          const platformCreds = BrevoCredentialResolver.getSuperAdminBrevoCredentials();
+          if (!platformCreds.apiKey) {
+             throw new Error("Platform BREVO_API_KEY is not configured.");
+          }
+          brevoApiKey = platformCreds.apiKey;
+          mailFrom = `${platformCreds.senderName} <${platformCreds.senderEmail}>`;
         }
-        throw new Error(`Brevo API Error: ${errMsg}`);
-      }
 
-      const responseData = await response.json();
+        const clean = (val) => (val || "").toString().replace(/['"]/g, '').trim();
+        brevoApiKey = clean(brevoApiKey);
+
+        let senderName = "Kiaan Technology Pvt Ltd";
+        let senderEmail = "info@kiaantechnology.com";
+        const match = mailFrom.match(/(.*)<(.*)>/);
+        if (match) {
+            senderName = match[1].trim() || "Kiaan Technology Pvt Ltd";
+            senderEmail = match[2].trim() || "info@kiaantechnology.com";
+        } else if (mailFrom.trim()) {
+            senderEmail = mailFrom.trim();
+            senderName = process.env.MAIL_FROM_NAME || "Kiaan Technology Pvt Ltd";
+        }
+
+        const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+          method: "POST",
+          headers: {
+            "api-key": brevoApiKey,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({
+            sender: { name: senderName, email: senderEmail },
+            replyTo: { name: senderName, email: isTenantContext && tenantBrevoCreds ? senderEmail : "info@kiaantechnology.com" },
+            to: [{ email: toEmail }],
+            subject: subject,
+            htmlContent: buildEmailHtml(subject, message, dynamicSoftwareName),
+            textContent: message
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          const errMsg = errorData.message || JSON.stringify(errorData);
+          if (errMsg.includes("unrecognised IP address") || errorData.code === "unauthorized") {
+            console.error(`🚨 BREVO SECURITY ALERT: IP Restriction active in Brevo account. Go to https://app.brevo.com/security/authorised_ips and click 'Deactivate for API keys' to allow all server IPs.`);
+          }
+          throw new Error(`Brevo API Error: ${errMsg}`);
+        }
+
+        const responseData = await response.json();
+
       
       console.log("SMTP RESULT:", {
         NotificationType: category,
@@ -257,7 +298,8 @@ export const dispatchNotification = async ({
         ["EMAIL", toEmail, message, memberId || null, "SENT"]
       );
       results.email = { success: true, messageId: responseData.messageId };
-    } catch (err) {
+        }
+      } catch (err) {
       console.error(`❌ Email failed for ${toEmail}:`, err.message);
       results.email = { success: false, error: err.message };
       await pool.query(
@@ -269,9 +311,40 @@ export const dispatchNotification = async ({
 }
 
   // ════════════════════════════════════════════
-  // 2.  WHATSAPP  (Removed as per request)
+  // 2.  WHATSAPP  →  WhatsApp Service Dispatcher
   // ════════════════════════════════════════════
   let fallbackToAppPush = false;
+  if (activeChannels.includes("WHATSAPP")) {
+    let recipientPhone = toPhone;
+    if (!recipientPhone && memberId) {
+      const [mRows] = await pool.query("SELECT phone FROM member WHERE id = ?", [memberId]);
+      if (mRows.length > 0 && mRows[0].phone) recipientPhone = mRows[0].phone;
+    }
+    if (!recipientPhone && toUserId) {
+      const [uRows] = await pool.query("SELECT phone FROM user WHERE id = ?", [toUserId]);
+      if (uRows.length > 0 && uRows[0].phone) recipientPhone = uRows[0].phone;
+    }
+
+    if (recipientPhone && adminId) {
+      try {
+        const { WhatsAppService } = await import("../modules/integrations/whatsapp.service.js");
+        const waResult = await WhatsAppService.sendWhatsAppNotification({
+          tenantId: adminId,
+          recipientPhone: recipientPhone,
+          message: `${dynamicSoftwareName}\n\n${subject}\n\n${message}`,
+          notificationType: category,
+          memberId: memberId || null
+        });
+        results.whatsapp = waResult;
+      } catch (waErr) {
+        console.error("❌ WhatsApp dispatch failed in notificationDispatcher:", waErr.message);
+        results.whatsapp = { success: false, error: waErr.message };
+      }
+    } else {
+      console.warn(`⚠️ WHATSAPP skipped: Missing recipient phone (${recipientPhone}) or tenant adminId (${adminId})`);
+      results.whatsapp = { success: false, reason: "Missing phone or tenant context" };
+    }
+  }
 
   // ════════════════════════════════════════════
   // 3.  IN_APP / APP_PUSH  →  Bell Icon

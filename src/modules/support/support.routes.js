@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { verifyToken } from '../../middlewares/auth.js';
 import {
   createTicket,
@@ -12,17 +12,17 @@ import {
 
 const router = Router();
 
-// Admin routes
-router.post('/', verifyToken(['Admin']), createTicket);
-router.get('/my', verifyToken(['Admin']), getMyTickets);
+// Admin / Staff / Housekeeping routes
+router.post('/', verifyToken(['Admin', 'receptionist', 'RECEPTIONIST', 'manager', 'MANAGER', 'sales_agent', 'SALES_AGENT', 'personaltrainer', 'PERSONALTRAINER', 'generaltrainer', 'GENERALTRAINER', 'Staff', 'STAFF', 'housekeeping', 'HOUSEKEEPING']), createTicket);
+router.get('/my', verifyToken(['Admin', 'receptionist', 'RECEPTIONIST', 'manager', 'MANAGER', 'sales_agent', 'SALES_AGENT', 'personaltrainer', 'PERSONALTRAINER', 'generaltrainer', 'GENERALTRAINER', 'Staff', 'STAFF', 'housekeeping', 'HOUSEKEEPING']), getMyTickets);
 
 // SuperAdmin routes
-router.get('/all', verifyToken(['Superadmin', 'Subadmin']), getAllTickets);
-router.get('/counts', verifyToken(['Superadmin', 'Subadmin']), getTicketCounts);
+router.get('/all', verifyToken(['Superadmin', 'Subadmin', 'SUPERADMIN', 'SUBADMIN']), getAllTickets);
+router.get('/counts', verifyToken(['Superadmin', 'Subadmin', 'SUPERADMIN', 'SUBADMIN']), getTicketCounts);
 
 // Shared
 router.get('/:id', verifyToken(), getTicketById);
 router.post('/:id/reply', verifyToken(), replyToTicket);
-router.patch('/:id/status', verifyToken(['Superadmin', 'Subadmin', 'Admin']), updateTicketStatus);
+router.patch('/:id/status', verifyToken(['Superadmin', 'Subadmin', 'SUPERADMIN', 'SUBADMIN', 'Admin', 'ADMIN']), updateTicketStatus);
 
 export default router;

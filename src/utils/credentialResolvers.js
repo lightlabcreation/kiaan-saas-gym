@@ -94,3 +94,43 @@ export const WhatsAppCredentialResolver = {
     };
   },
 };
+
+/**
+ * Resolves credentials for SMTP Email Dispatcher
+ */
+export const SmtpCredentialResolver = {
+  getTenantSmtpCredentials: async (tenantId) => {
+    if (!tenantId) return null;
+
+    const [rows] = await pool.query(
+      "SELECT smtpHost, smtpPort, smtpUsername, smtpPassword, smtpEncryption, smtpEnabled, smtpProvider, brevoSenderEmail, brevoSenderName FROM tenantintegrationsettings WHERE tenantId = ?",
+      [tenantId]
+    );
+
+    if (rows.length === 0 || !rows[0].smtpEnabled || !rows[0].smtpHost || !rows[0].smtpUsername || !rows[0].smtpPassword) {
+      return null;
+    }
+
+    const decryptedPassword = decrypt(rows[0].smtpPassword);
+    if (!decryptedPassword) return null;
+
+    const port = Number(rows[0].smtpPort) || 587;
+    const isSecure = port === 465 || rows[0].smtpEncryption === 'SSL/TLS';
+
+    return {
+      provider: rows[0].smtpProvider || 'gmail',
+      host: rows[0].smtpHost || "smtp.gmail.com",
+      port: port,
+      secure: isSecure,
+      encryption: rows[0].smtpEncryption || (port === 465 ? 'SSL/TLS' : 'STARTTLS'),
+      auth: {
+        user: rows[0].smtpUsername,
+        pass: decryptedPassword
+      },
+      senderEmail: rows[0].brevoSenderEmail || rows[0].smtpUsername,
+      senderName: rows[0].brevoSenderName || "Gym Owner",
+      smtpEnabled: Boolean(rows[0].smtpEnabled)
+    };
+  }
+};
+

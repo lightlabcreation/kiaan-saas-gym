@@ -3,6 +3,8 @@ import { RazorpayProvider } from './RazorpayProvider.js';
 import { StripeProvider } from './StripeProvider.js';
 import { PayPalProvider } from './PayPalProvider.js';
 import { PayUProvider } from './PayUProvider.js';
+import { CashfreeProvider } from './CashfreeProvider.js';
+import { PhonePeProvider } from './PhonePeProvider.js';
 
 export class PaymentService {
   /**
@@ -34,9 +36,9 @@ export class PaymentService {
     return {
       isEnabled: true,
       isTestMode: process.env.NODE_ENV !== 'production',
-      keyId: process.env[`${p}_KEY_ID`] || process.env[`${p}_PUBLISHABLE_KEY`] || process.env[`${p}_CLIENT_ID`] || process.env[`${p}_MERCHANT_KEY`],
-      secretKey: process.env[`${p}_KEY_SECRET`] || process.env[`${p}_SECRET_KEY`] || process.env[`${p}_CLIENT_SECRET`] || process.env[`${p}_SECRET`],
-      webhookSecret: process.env[`${p}_WEBHOOK_SECRET`],
+      keyId: process.env[`${p}_KEY_ID`] || process.env[`${p}_PUBLISHABLE_KEY`] || process.env[`${p}_CLIENT_ID`] || process.env[`${p}_MERCHANT_KEY`] || process.env[`${p}_APP_ID`] || process.env[`${p}_MERCHANT_ID`],
+      secretKey: process.env[`${p}_KEY_SECRET`] || process.env[`${p}_SECRET_KEY`] || process.env[`${p}_CLIENT_SECRET`] || process.env[`${p}_SECRET`] || process.env[`${p}_SALT_KEY`],
+      webhookSecret: process.env[`${p}_WEBHOOK_SECRET`] || process.env[`${p}_SALT_INDEX`],
       merchantSalt: process.env[`${p}_MERCHANT_SALT`]
     };
   }
@@ -57,10 +59,15 @@ export class PaymentService {
         return new PayPalProvider(config);
       case 'PAYU':
         return new PayUProvider(config);
+      case 'CASHFREE':
+        return new CashfreeProvider(config);
+      case 'PHONEPE':
+        return new PhonePeProvider(config);
       default:
         throw new Error(`Unsupported payment provider: ${providerName}`);
     }
   }
+
 
   /**
    * Create Transaction Record and Order

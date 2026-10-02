@@ -21,15 +21,19 @@ export const getAvailableMethods = async (req, res) => {
 
     // Check environment fallbacks if not explicitly disabled
     const razorpayAvailable = configMap.RAZORPAY !== undefined ? configMap.RAZORPAY : Boolean(process.env.RAZORPAY_KEY_ID);
+    const cashfreeAvailable = configMap.CASHFREE !== undefined ? configMap.CASHFREE : Boolean(process.env.CASHFREE_APP_ID || process.env.CASHFREE_KEY_ID);
+    const payuAvailable = configMap.PAYU !== undefined ? configMap.PAYU : Boolean(process.env.PAYU_MERCHANT_KEY);
+    const phonepeAvailable = configMap.PHONEPE !== undefined ? configMap.PHONEPE : Boolean(process.env.PHONEPE_MERCHANT_ID || process.env.PHONEPE_KEY_ID);
     const stripeAvailable = configMap.STRIPE !== undefined ? configMap.STRIPE : Boolean(process.env.STRIPE_PUBLISHABLE_KEY || process.env.STRIPE_SECRET_KEY);
     const paypalAvailable = configMap.PAYPAL !== undefined ? configMap.PAYPAL : Boolean(process.env.PAYPAL_CLIENT_ID);
-    const payuAvailable = configMap.PAYU !== undefined ? configMap.PAYU : Boolean(process.env.PAYU_MERCHANT_KEY);
 
     const availableProviders = [];
     if (razorpayAvailable) availableProviders.push('RAZORPAY');
+    if (cashfreeAvailable) availableProviders.push('CASHFREE');
+    if (payuAvailable) availableProviders.push('PAYU');
+    if (phonepeAvailable) availableProviders.push('PHONEPE');
     if (stripeAvailable) availableProviders.push('STRIPE');
     if (paypalAvailable) availableProviders.push('PAYPAL');
-    if (payuAvailable) availableProviders.push('PAYU');
 
     // Default to at least RAZORPAY / STRIPE in development if none enabled
     if (availableProviders.length === 0) {
@@ -257,9 +261,11 @@ export const getAdminGateways = async (req, res) => {
 
     const gateways = {
       RAZORPAY: { isEnabled: false, isTestMode: true, keyId: "", webhookSecret: "", configured: false },
+      CASHFREE: { isEnabled: false, isTestMode: true, keyId: "", webhookSecret: "", configured: false },
+      PAYU: { isEnabled: false, isTestMode: true, keyId: "", merchantSalt: "", configured: false },
+      PHONEPE: { isEnabled: false, isTestMode: true, keyId: "", webhookSecret: "", configured: false },
       STRIPE: { isEnabled: false, isTestMode: true, keyId: "", webhookSecret: "", configured: false },
-      PAYPAL: { isEnabled: false, isTestMode: true, keyId: "", webhookSecret: "", configured: false },
-      PAYU: { isEnabled: false, isTestMode: true, keyId: "", merchantSalt: "", configured: false }
+      PAYPAL: { isEnabled: false, isTestMode: true, keyId: "", webhookSecret: "", configured: false }
     };
 
     rows.forEach(r => {

@@ -218,7 +218,7 @@ export const getUserAnnouncements = async (req, res, next) => {
 
 export const sendPersonalNotification = async (req, res, next) => {
   try {
-    const { memberId, category, message } = req.body;
+    const { memberId, category, message, channels } = req.body;
     
     if (!memberId || !category || !message) {
       return res.status(400).json({
@@ -227,11 +227,15 @@ export const sendPersonalNotification = async (req, res, next) => {
       });
     }
 
+    const adminId = req.user.roleId === 2 ? req.user.id : req.user.adminId;
+
     const result = await sendPersonalNotificationService({
       memberId: parseInt(memberId),
       category,
       message,
-      sentBy: req.user.id
+      sentBy: req.user.id,
+      channels,
+      adminId
     });
 
     res.json({ success: true, message: `Notification sent to ${result.memberName}`, result });

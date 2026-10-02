@@ -600,13 +600,10 @@ export const getUserAnnouncementsService = async (adminId, branchId, roleGroup) 
 // ─────────────────────────────────────────────────────────
 // Personal Notification: Admin → Individual Member
 // ─────────────────────────────────────────────────────────
-export const sendPersonalNotificationService = async ({ memberId, memberUserId, category, message, sentBy }) => {
-  // 1. Save to notificationlog (this is what the Bell Icon reads)
-  const notifMessage = `[${category}] ${message}`;
-  
-  // Get member info for email/whatsapp (optional future use)
+export const sendPersonalNotificationService = async ({ memberId, category, message, sentBy, channels, adminId }) => {
+  // 1. Get member info
   const [memberRows] = await pool.query(
-    `SELECT id, fullName, email, phone FROM member WHERE id = ?`, 
+    `SELECT id, fullName, email, phone, userId FROM member WHERE id = ?`, 
     [memberId]
   );
 
@@ -614,14 +611,28 @@ export const sendPersonalNotificationService = async ({ memberId, memberUserId, 
     throw new Error("Member not found");
   }
 
-  // 2. Insert into notificationlog for Bell Icon
-  await pool.query(
-    `INSERT INTO notificationlog (type, \`to\`, message, memberId, status, createdAt)
-     VALUES (?, ?, ?, ?, ?, NOW())`,
-    ["APP_PUSH", memberRows[0].email || "member", notifMessage, memberId, "SENT"]
-  );
+  const member = memberRows[0];
+  const activeChannels = (channels && channels.length) ? channels : ["APP_PUSH", "WHATSAPP"];
 
-  // 3. Also log in personal_notifications table for history
+  // 2. Dispatch via central notificationDispatcher (Handles IN_APP push, WHATSAPP, EMAIL)
+  let dispatchResult = {};
+  try {
+    dispatchResult = await dispatchNotification({
+      category: category || "PERSONAL_NOTIFICATION",
+      subject: `[${category}] Personal Notification`,
+      message,
+      memberId: member.id,
+      toUserId: member.userId,
+      toPhone: member.phone,
+      toEmail: member.email,
+      adminId: adminId || null,
+      channels: activeChannels
+    });
+  } catch (dErr) {
+    console.error("❌ Personal notification dispatch error:", dErr.message);
+  }
+
+  // 3. Log in personal_notification table for history
   await pool.query(
     `INSERT INTO personal_notification (memberId, category, message, sentBy, createdAt)
      VALUES (?, ?, ?, ?, NOW())`,
@@ -630,9 +641,10 @@ export const sendPersonalNotificationService = async ({ memberId, memberUserId, 
 
   return {
     success: true,
-    memberName: memberRows[0].fullName,
+    memberName: member.fullName,
     category,
-    message
+    message,
+    dispatchResult
   };
 };
 

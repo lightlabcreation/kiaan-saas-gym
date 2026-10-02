@@ -289,7 +289,7 @@ export const registerUser = async (data,payload) => {
 // };
 
 
-// Helper to ensure columns exist in user table safely (run once on module load)
+// Helper to ensure columns exist in user table safely
 let userColumnsEnsured = false;
 const ensureUserColumns = async () => {
   if (userColumnsEnsured) return;
@@ -297,6 +297,7 @@ const ensureUserColumns = async () => {
     await pool.query(`ALTER TABLE user ADD COLUMN isTrial TINYINT(1) DEFAULT 0`).catch(() => {});
     await pool.query(`ALTER TABLE user ADD COLUMN licenseExpiryDate DATETIME DEFAULT NULL`).catch(() => {});
     await pool.query(`ALTER TABLE user ADD COLUMN razorpayKeyId VARCHAR(255) DEFAULT NULL`).catch(() => {});
+    await pool.query(`ALTER TABLE user ADD COLUMN razorpayKeySecret VARCHAR(255) DEFAULT NULL`).catch(() => {});
     await pool.query(`ALTER TABLE user ADD COLUMN trialStatus VARCHAR(50) DEFAULT 'None'`).catch(() => {});
     userColumnsEnsured = true;
   } catch (err) {}
@@ -313,6 +314,8 @@ export const loginUser = async ({ email, password, bypassPassword = false }) => 
 
   const cleanEmail = email.trim();
   const cleanPassword = password ? String(password).trim() : "";
+
+  await ensureUserColumns();
 
   /* ===============================
      1️⃣ GET USER + ROLE + BRANCH
@@ -343,8 +346,18 @@ export const loginUser = async ({ email, password, bypassPassword = false }) => 
     ORDER BY u.id DESC
   `;
 
-  const [rows] = await pool.query(sql, [cleanEmail]);
-  
+  let rows;
+  try {
+    [rows] = await pool.query(sql, [cleanEmail]);
+  } catch (err) {
+    if (err && (err.code === 'ER_BAD_FIELD_ERROR' || err.sqlMessage?.includes('razorpayKeyId') || err.message?.includes('razorpayKeyId'))) {
+      const fallbackSql = sql.replace('u.razorpayKeyId,', 'NULL AS razorpayKeyId,');
+      [rows] = await pool.query(fallbackSql, [cleanEmail]);
+    } else {
+      throw err;
+    }
+  }
+
   if (rows.length === 0) {
     throw { status: 401, message: "Invalid email or password" };
   }

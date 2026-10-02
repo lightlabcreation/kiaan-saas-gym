@@ -2,15 +2,10 @@ import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-cbc';
 
-const FALLBACK_KEY = "kiaan_gym_secret_encryption_key32b";
 if (!process.env.ENCRYPTION_KEY) {
-  console.warn("⚠️ WARNING: ENCRYPTION_KEY is missing in .env. Using fallback key.");
+  throw new Error("CRITICAL SECURITY ERROR: ENCRYPTION_KEY is missing in .env file. Application cannot start safely.");
 }
-let rawKey = (process.env.ENCRYPTION_KEY || FALLBACK_KEY).trim();
-if ((rawKey.startsWith('"') && rawKey.endsWith('"')) || (rawKey.startsWith("'") && rawKey.endsWith("'"))) {
-  rawKey = rawKey.slice(1, -1);
-}
-const ENCRYPTION_KEY = Buffer.from(rawKey, 'utf-8'); // Must be 32 bytes
+const ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY, 'utf-8'); // Must be 32 bytes
 const IV_LENGTH = 16; // For AES, this is always 16
 
 /**

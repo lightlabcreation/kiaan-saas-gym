@@ -5,14 +5,14 @@ import { uploadToCloudinary } from '../../config/cloudinary.js';
 
 export const createTicket = async (req, res) => {
   try {
-    const adminId = req.user.id;
+    const adminId = req.user.roleId === 2 ? req.user.id : (req.user.adminId || req.user.id);
     const { subject, category, priority, message } = req.body;
     if (!subject || (!message && (!req.files || (!req.files.image && !req.files.attachment && !req.files.file)))) {
       return res.status(400).json({ success: false, message: 'Subject and message or photo required.' });
     }
     
-    const [admins] = await pool.query('SELECT fullName, email, gymName, phone FROM user WHERE id = ?', [adminId]);
-    if (!admins.length) return res.status(404).json({ success: false, message: 'Admin not found.' });
+    const [admins] = await pool.query('SELECT fullName, email, gymName, phone FROM user WHERE id = ?', [req.user.id]);
+    if (!admins.length) return res.status(404).json({ success: false, message: 'User not found.' });
     const admin = admins[0];
     const ticketNumber = 'TKT-' + Date.now() + '-' + adminId;
 
@@ -33,27 +33,27 @@ export const createTicket = async (req, res) => {
     const ticketId = result.insertId;
     await pool.query(
       'INSERT INTO support_ticket_reply (ticketId, senderId, senderRole, message, attachmentUrl, createdAt) VALUES (?, ?, ?, ?, ?, NOW())',
-      [ticketId, adminId, 'Admin', message || '', attachmentUrl]
+      [ticketId, req.user.id, req.user.role || 'User', message || '', attachmentUrl]
     );
 
     const attachmentNotice = attachmentUrl ? `\n\n📷 Attachment Image:\n${attachmentUrl}` : '';
 
-    // 1. Email confirmation to Admin who raised ticket
+    // 1. Email confirmation to user who raised ticket
     dispatchNotification({
       category: 'support_ticket_created',
       toEmail: admin.email,
       toPhone: admin.phone || null,
-      toUserId: adminId,
+      toUserId: req.user.id,
       softwareName: admin.gymName || 'Gym Management',
       subject: `Support Ticket #${ticketNumber} Created - ${admin.gymName || 'Gym Management'}`,
-      message: `Hello ${admin.fullName || 'Admin'},\n\nYour support ticket has been successfully created.\n\nTicket Details:\nTicket ID: #${ticketNumber}\nSoftware: ${admin.gymName || 'Gym Management'}\nSubject: ${subject}\nCategory: ${category || 'General'}\nPriority: ${priority || 'Medium'}\n\nIssue Description:\n${message || 'Photo attached'}${attachmentNotice}\n\nOur support team will review and get back to you shortly.\n\nThank you,\nKiaan Technology Pvt Ltd`,
+      message: `Hello ${admin.fullName || 'User'},\n\nYour support ticket has been successfully created.\n\nTicket Details:\nTicket ID: #${ticketNumber}\nSoftware: ${admin.gymName || 'Gym Management'}\nSubject: ${subject}\nCategory: ${category || 'General'}\nPriority: ${priority || 'Medium'}\n\nIssue Description:\n${message || 'Photo attached'}${attachmentNotice}\n\nOur support team will review and get back to you shortly.\n\nThank you,\nKiaan Technology Pvt Ltd`,
       isSystemEvent: true,
       customChannels: ['EMAIL', 'IN_APP']
-    }).catch(err => console.error("❌ Email to Admin failed on ticket create:", err.message));
+    }).catch(err => console.error("❌ Email to user failed on ticket create:", err.message));
 
     // 2. Email & In-App Notification to SuperAdmin
     notifySuperAdmin(
-      `🚨 New Support Ticket Alert!\n\nAdmin Name: ${admin.fullName || 'Admin'}\nAdmin Email: ${admin.email}\nSoftware: ${admin.gymName || 'Gym Management'}\nTicket ID: #${ticketNumber}\nSubject: ${subject}\nCategory: ${category || 'General'}\nPriority: ${priority || 'Medium'}\nCreated Date/Time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\n\nIssue Description:\n${message || 'Photo attached'}${attachmentNotice}\n\nDashboard Link: https://gym-newss.kiaantechnology.com/superadmin/support`,
+      `🚨 New Support Ticket Alert!\n\nUser Name: ${admin.fullName || 'User'}\nUser Email: ${admin.email}\nSoftware: ${admin.gymName || 'Gym Management'}\nTicket ID: #${ticketNumber}\nSubject: ${subject}\nCategory: ${category || 'General'}\nPriority: ${priority || 'Medium'}\nCreated Date/Time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\n\nIssue Description:\n${message || 'Photo attached'}${attachmentNotice}\n\nDashboard Link: https://gym-newss.kiaantechnology.com/superadmin/support`,
       "NEW_SUPPORT_TICKET",
       { subject: `New Support Ticket #${ticketNumber} - ${admin.gymName || 'Gym Management'}`, targetEmail: 'support@kiaantechnology.com' }
     ).catch(err => console.error("❌ Email to SuperAdmin failed on ticket create:", err.message));
@@ -64,8 +64,12 @@ export const createTicket = async (req, res) => {
 
 export const getMyTickets = async (req, res) => {
   try {
-    const adminId = req.user.id;
-    const [tickets] = await pool.query('SELECT * FROM support_ticket WHERE adminId = ? ORDER BY updatedAt DESC', [adminId]);
+    const adminId = req.user.roleId === 2 ? req.user.id : (req.user.adminId || req.user.id);
+    const userId = req.user.id;
+    const [tickets] = await pool.query(
+      'SELECT * FROM support_ticket WHERE adminId = ? OR adminEmail = ? ORDER BY updatedAt DESC', 
+      [adminId, req.user.email]
+    );
     return res.json({ success: true, tickets });
   } catch (err) { return res.status(500).json({ success: false, message: err.message }); }
 };

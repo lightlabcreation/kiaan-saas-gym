@@ -3,32 +3,12 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // Create a **Promise Pool directly**
-let poolConfig;
-if (process.env.DATABASE_URL) {
-  try {
-    const parsed = new URL(process.env.DATABASE_URL);
-    poolConfig = {
-      host: parsed.hostname,
-      port: parseInt(parsed.port) || 3306,
-      user: decodeURIComponent(parsed.username || "root"),
-      password: decodeURIComponent(parsed.password || ""),
-      database: parsed.pathname.replace(/^\//, "") || "gym_saas",
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-      enableKeepAlive: true,
-      keepAliveInitialDelay: 10000,
-      ssl: process.env.DATABASE_URL.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
-    };
-  } catch (_) {
-    poolConfig = process.env.DATABASE_URL;
-  }
-} else {
-  poolConfig = {
+export const pool = mysql
+  .createPool({
     host: process.env.DB_HOST || "localhost",
-    user: process.env.DB_USER || process.env.DB_USERNAME || "root",
-    password: process.env.DB_PASS || process.env.DB_PASSWORD || "",
-    database: process.env.DB_NAME || process.env.DB_DATABASE || "gym_saas",
+    user: process.env.DB_USER || "root",
+    password: process.env.DB_PASS || "",
+    database: process.env.DB_NAME || "gym_db",
     port: parseInt(process.env.DB_PORT) || 3306,
     waitForConnections: true,
     connectionLimit: 10,
@@ -36,10 +16,8 @@ if (process.env.DATABASE_URL) {
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
     ssl: process.env.DB_HOST?.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
-  };
-}
-
-export const pool = mysql.createPool(poolConfig).promise();
+  })
+  .promise();
 
 // Test MySQL connection — release immediately, run seeding in background
 pool
@@ -64,6 +42,13 @@ async function runStartupMigrations() {
   // Alter session table
   try {
     await pool.query("ALTER TABLE session ADD COLUMN capacity INT NOT NULL DEFAULT 20");
+  } catch (e) {
+    // Column already exists — safe to ignore
+  }
+
+  // Alter tenantintegrationsettings table for smtpProvider
+  try {
+    await pool.query("ALTER TABLE tenantintegrationsettings ADD COLUMN smtpProvider VARCHAR(50) DEFAULT 'gmail'");
   } catch (e) {
     // Column already exists — safe to ignore
   }
@@ -235,7 +220,7 @@ async function runStartupMigrations() {
     // Enforce correct channels for critical templates
     await pool.query(`
       UPDATE message_templates
-      SET channel = 'EMAIL,IN_APP'
+      SET channel = 'EMAIL,IN_APP,WHATSAPP'
       WHERE eventKey IN (
         'PLAN_UPGRADE_REQUEST', 'PLAN_UPGRADED', 'SUBSCRIPTION_ACTIVATED', 'ANNOUNCEMENT', 'PLAN_PURCHASED',
         'MEMBER_CREATED', 'MEMBER_PLAN_ASSIGNED', 'MEMBER_ATTENDANCE', 'DIET_PLAN_ASSIGNED', 'WORKOUT_PLAN_ASSIGNED',
@@ -405,7 +390,7 @@ async function runStartupMigrations() {
       CREATE TABLE IF NOT EXISTS payment_gateway_config (
         id INT AUTO_INCREMENT PRIMARY KEY,
         tenantId INT NOT NULL,
-        provider ENUM('RAZORPAY', 'STRIPE', 'PAYPAL', 'PAYU') NOT NULL,
+        provider VARCHAR(50) NOT NULL,
         isEnabled BOOLEAN DEFAULT FALSE,
         isTestMode BOOLEAN DEFAULT TRUE,
         keyId VARCHAR(255) NULL,
@@ -420,6 +405,9 @@ async function runStartupMigrations() {
       );
     `);
 
+    try {
+      await pool.query("ALTER TABLE payment_gateway_config MODIFY COLUMN provider VARCHAR(50) NOT NULL");
+    } catch (_) {}
     try {
       await pool.query("ALTER TABLE booking_requests ADD COLUMN paymentMode VARCHAR(50) NULL");
     } catch (_) {}
@@ -478,16 +466,16 @@ async function runStartupMigrations() {
     if (allPlans && allPlans.length > 0) {
       const nonTrial = allPlans.filter(p => p.price > 0 || (p.name && !p.name.toLowerCase().includes('trial')));
       if (nonTrial.length >= 3) {
-        await pool.query(`UPDATE plan SET name = 'Starter', price = 999, category = 'BASIC' WHERE id = ?`, [nonTrial[0].id]);
-        await pool.query(`UPDATE plan SET name = 'Growth', price = 1299, category = 'GROWTH' WHERE id = ?`, [nonTrial[1].id]);
-        await pool.query(`UPDATE plan SET name = 'Pro', price = 1499, category = 'PRO' WHERE id = ?`, [nonTrial[2].id]);
+        await pool.query(`UPDATE plan SET name = 'Starter Plan', price = 700, category = 'BASIC' WHERE id = ?`, [nonTrial[0].id]);
+        await pool.query(`UPDATE plan SET name = 'Standard Plan', price = 900, category = 'GROWTH' WHERE id = ?`, [nonTrial[1].id]);
+        await pool.query(`UPDATE plan SET name = 'Pro Plan', price = 1200, category = 'PRO' WHERE id = ?`, [nonTrial[2].id]);
       }
       const trial = allPlans.filter(p => p.price === 0 || (p.name && p.name.toLowerCase().includes('trial')));
       if (trial.length > 0) {
         await pool.query(`UPDATE plan SET name = '7-Day Free Trial', duration = '7 Days', description = '7 Days full feature trial access', category = 'TRIAL' WHERE id = ?`, [trial[0].id]);
       }
     }
-    console.log("✅ Plan prices and names updated to Starter (999), Growth (1299), Pro (1499).");
+    console.log("✅ Plan prices and names updated to Starter (700), Standard (900), Pro (1200).");
   } catch (planErr) {
     console.error("Notice: Plan price update notice:", planErr?.message);
   }
