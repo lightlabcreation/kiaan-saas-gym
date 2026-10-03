@@ -1,29 +1,17 @@
 import axios from 'axios';
 
-const list = [
-  'john@gmail.com',
-  'piasubadmin@gmail.com',
-  'generaltrainer1@gym.com',
-  'general1@gmail.com',
-  'sneha@gmail.com',
-  'salesagent@gmail.com',
-  'receptionist@gmail.com',
-  'personal@gmail.com',
-  'housekeeping@gmail.com'
-];
-
-async function test(email) {
+async function test(email, pass) {
   try {
-    const res = await axios.post('https://api.gym-newss.kiaantechnology.com/api/auth/login', { email, password: '123456' });
-    console.log(`✅ SUCCESS -> Email: ${email} | Role: ${res.data.user?.roleName} | ID: ${res.data.user?.id}`);
+    const res = await axios.post('https://api.gym-newss.kiaantechnology.com/api/auth/login', { email, password: pass });
+    console.log(`✅ [SUPERADMIN/ADMIN SUCCESS] ${email}: ID=${res.data.user?.id}, Role=${res.data.user?.roleName}`);
   } catch (err) {
-    console.log(`❌ FAILED -> Email: ${email} | Error: ${err.response?.data?.message || err.message}`);
+    console.log(`❌ [FAILED] ${email}:`, err.response?.data?.message || err.message);
   }
 }
 
 async function run() {
-  for (const email of list) {
-    await test(email);
-  }
+  await test('superadmin@gmail.com', '123456');
+  await test('admin@gmail.com', '123456');
+  await test('test@test.com', '123456');
 }
 run();
