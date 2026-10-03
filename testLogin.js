@@ -2,9 +2,9 @@ import axios from 'axios';
 
 const testLogin = async () => {
   try {
-    const res = await axios.post('http://localhost:5000/api/auth/login', {
+    const res = await axios.post('http://localhost:4000/api/auth/login', {
       email: 'superadmin@gmail.com',
-      password: 'admin'
+      password: '123456'
     });
     console.log("Success:", res.data);
   } catch (err) {

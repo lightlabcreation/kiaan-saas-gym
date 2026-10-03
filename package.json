@@ -4,9 +4,6 @@
   "description": "Simple Gym backend scaffold (Express + MySQL)",
   "main": "src/server.js",
   "type": "module",
-  "engines": {
-    "node": ">=20.0.0"
-  },
   "scripts": {
     "start": "node trial_migration.js && node src/server.js",
     "dev": "nodemon src/server.js",

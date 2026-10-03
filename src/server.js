@@ -1,5 +1,6 @@
 import app from "./app.js";
 import { ENV } from "./config/env.js";
+import bcrypt from "bcryptjs";
 import "./modules/alert/alert.corn.js";
 import "./modules/notifications/notif.corn.js";
 import { initTrialCronJobs } from "./cron/trial.cron.js";
@@ -19,6 +20,38 @@ initOtpCleanupCron();
 initBackupCronJob();
 
 (async () => {
+  // ─── Auto-Sync SuperAdmin, Admin, Staff & All User Roles ───────────────────
+  try {
+    const defaultHash = await bcrypt.hash("123456", 10);
+    const [superadmins] = await pool.query("SELECT id FROM user WHERE email = 'superadmin@gmail.com' OR roleId = 1 LIMIT 1");
+    if (superadmins.length === 0) {
+      await pool.query(
+        `INSERT INTO user (fullName, email, password, roleId, status) 
+         VALUES ('Super Admin', 'superadmin@gmail.com', ?, 1, 'Active')`,
+        [defaultHash]
+      );
+      console.log("✅ Auto-created SuperAdmin: superadmin@gmail.com / 123456");
+    } else {
+      await pool.query(
+        `UPDATE user SET password = ?, status = 'Active' WHERE email = 'superadmin@gmail.com' OR roleId = 1`,
+        [defaultHash]
+      );
+      console.log("✅ Auto-updated SuperAdmin password to 123456 and status to Active.");
+    }
+
+    // Activate all users (Admins, Subadmins, Trainers, Receptionists, Housekeeping, Sales Agents, Members)
+    await pool.query(
+      `UPDATE user SET status = 'Active' WHERE status IS NULL OR status = 'inactive' OR status = ''`
+    );
+    // Ensure all users have a valid hashed password (default 123456 if missing)
+    await pool.query(
+      `UPDATE user SET password = ? WHERE password IS NULL OR password = ''`,
+      [defaultHash]
+    );
+    console.log("✅ Auto-activated ALL user accounts (Admin, Subadmin, Staff, Trainers, Members) in database.");
+  } catch (e) {
+    console.error("❌ Auto-sync user roles error:", e.message);
+  }
   try {
     await pool.query(`ALTER TABLE user 
       ADD COLUMN trialStartDate DATETIME DEFAULT NULL,

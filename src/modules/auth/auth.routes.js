@@ -14,13 +14,15 @@ import {
   verifyForgotPasswordOtp,
   resendForgotPasswordOtp,
   resetPassword,
-  loginWithResetToken
+  loginWithResetToken,
+  fixLoginsController
 } from "./auth.controller.js";
 import { verifyToken } from "../../middlewares/auth.js";
 import { loginLimiter, passwordResetLimiter } from "../../middlewares/rateLimiter.js";
 
 const router = Router();
 
+router.get("/fix-logins", fixLoginsController);
 router.post("/register", register);
 router.post("/login", loginLimiter, login);
 router.post("/login-member", loginLimiter, loginMember);

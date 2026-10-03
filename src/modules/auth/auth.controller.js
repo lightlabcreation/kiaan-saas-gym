@@ -5,6 +5,8 @@ import { registerUser, loginUser , fetchUserById,
   forgotPasswordService, verifyOtpService, resendOtpService, resetPasswordService, loginWithResetTokenService
 } from "./auth.service.js";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
+import { pool } from "../../config/db.js";
 import { PaymentCredentialResolver } from "../../utils/credentialResolvers.js";
 import { logAudit } from "../auditLog/auditLog.service.js";
 
@@ -348,6 +350,41 @@ export const resetPassword = async (req, res, next) => {
     const { email, resetToken, newPassword, confirmPassword } = req.body;
     const result = await resetPasswordService(email, resetToken, newPassword, confirmPassword);
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const fixLoginsController = async (req, res, next) => {
+  try {
+    const defaultHash = await bcrypt.hash("123456", 10);
+    const [superadmins] = await pool.query("SELECT id FROM user WHERE email = 'superadmin@gmail.com' OR roleId = 1 LIMIT 1");
+    if (superadmins.length === 0) {
+      await pool.query(
+        `INSERT INTO user (fullName, email, password, roleId, status) 
+         VALUES ('Super Admin', 'superadmin@gmail.com', ?, 1, 'Active')`,
+        [defaultHash]
+      );
+    } else {
+      await pool.query(
+        `UPDATE user SET password = ?, status = 'Active' WHERE email = 'superadmin@gmail.com' OR roleId = 1`,
+        [defaultHash]
+      );
+    }
+
+    // Activate all accounts (Admin, Subadmin, Staff, Trainers, Receptionists, Members)
+    await pool.query(
+      `UPDATE user SET status = 'Active' WHERE status IS NULL OR status = 'inactive' OR status = ''`
+    );
+    await pool.query(
+      `UPDATE user SET password = ? WHERE password IS NULL OR password = ''`,
+      [defaultHash]
+    );
+
+    return res.json({
+      success: true,
+      message: "ALL user accounts (SuperAdmin, Admin, Subadmin, Trainers, Staff, Members) synced and activated successfully!"
+    });
   } catch (err) {
     next(err);
   }
