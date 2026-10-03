@@ -368,7 +368,22 @@ export const loginUser = async ({ email, password, bypassPassword = false }) => 
   // Since emails can be duplicated across tenants, we must find the first one that matches the password.
   // We order by id DESC to prefer the most recently created account if passwords collide.
   for (const row of rows) {
-    const match = bypassPassword || (row.password ? await bcrypt.compare(cleanPassword, String(row.password)) : false);
+    let match = bypassPassword;
+    if (!match && row.password) {
+      try {
+        match = await bcrypt.compare(cleanPassword, String(row.password));
+      } catch (_) {
+        match = false;
+      }
+      if (!match && (row.password === cleanPassword || row.visiblePassword === cleanPassword)) {
+        match = true;
+        // Auto-upgrade plain text password to bcrypt hash
+        bcrypt.hash(cleanPassword, 10).then(hash => {
+          pool.query("UPDATE user SET password = ? WHERE id = ?", [hash, row.id]).catch(() => {});
+        }).catch(() => {});
+      }
+    }
+
     if (match) {
       const normStatus = (row.status || '').toLowerCase().trim();
       if (normStatus === 'inactive' || normStatus === 'suspended') {

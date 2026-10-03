@@ -2,22 +2,25 @@ import mysql from "mysql2";
 import dotenv from "dotenv";
 dotenv.config();
 
-// Create a **Promise Pool directly**
-export const pool = mysql
-  .createPool({
-    host: process.env.DB_HOST || "localhost",
-    user: process.env.DB_USER || "root",
-    password: process.env.DB_PASS || "",
-    database: process.env.DB_NAME || "gym_db",
-    port: parseInt(process.env.DB_PORT) || 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 10000,
-    ssl: process.env.DB_HOST?.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
-  })
-  .promise();
+const dbUrl = process.env.DATABASE_URL || process.env.MYSQL_URL;
+
+export const pool = (
+  dbUrl
+    ? mysql.createPool(dbUrl)
+    : mysql.createPool({
+        host: process.env.DB_HOST || "localhost",
+        user: process.env.DB_USER || "root",
+        password: process.env.DB_PASS || "",
+        database: process.env.DB_NAME || "gym_db",
+        port: parseInt(process.env.DB_PORT) || 3306,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10000,
+        ssl: process.env.DB_HOST?.includes("rlwy.net") ? { rejectUnauthorized: false } : undefined
+      })
+).promise();
 
 // Test MySQL connection — release immediately, run seeding in background
 pool
