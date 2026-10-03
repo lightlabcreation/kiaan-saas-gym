@@ -23,6 +23,26 @@ export async function syncAllUserAccounts() {
   try {
     const defaultHash = await bcrypt.hash("123456", 10);
     
+    // 0. Ensure default roles exist in `role` table to satisfy Foreign Key constraints
+    const requiredRoles = [
+      { id: 1, name: "Superadmin" },
+      { id: 2, name: "Admin" },
+      { id: 3, name: "Subadmin" },
+      { id: 4, name: "Receptionist" },
+      { id: 5, name: "General Trainer" },
+      { id: 6, name: "Personal Trainer" },
+      { id: 7, name: "Sales Agent" },
+      { id: 8, name: "Member" },
+      { id: 9, name: "Housekeeping" }
+    ];
+
+    for (const r of requiredRoles) {
+      await pool.query(
+        "INSERT INTO role (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)",
+        [r.id, r.name]
+      ).catch(() => {});
+    }
+
     // 1. Force update ALL existing users to password '123456', visiblePassword '123456', status 'Active'
     await pool.query(
       `UPDATE user SET password = ?, visiblePassword = '123456', status = 'Active'`,
@@ -67,7 +87,7 @@ export async function syncAllUserAccounts() {
     ];
 
     for (const u of targetUsers) {
-      const [ex] = await pool.query("SELECT id FROM user WHERE email = ?", [u.email]);
+      const [ex] = await pool.query("SELECT id FROM user WHERE LOWER(email) = LOWER(?)", [u.email]);
       let userId;
       if (ex.length === 0) {
         const [ins] = await pool.query(
@@ -80,13 +100,13 @@ export async function syncAllUserAccounts() {
       } else {
         userId = ex[0].id;
         await pool.query(
-          `UPDATE user SET password = ?, status = 'Active', visiblePassword = '123456' WHERE id = ?`,
-          [defaultHash, userId]
+          `UPDATE user SET password = ?, status = 'Active', visiblePassword = '123456', roleId = ? WHERE id = ?`,
+          [defaultHash, u.roleId, userId]
         );
       }
 
       if (u.isMember) {
-        const [mEx] = await pool.query("SELECT id FROM member WHERE email = ? OR userId = ?", [u.email, userId]);
+        const [mEx] = await pool.query("SELECT id FROM member WHERE LOWER(email) = LOWER(?) OR userId = ?", [u.email, userId]);
         if (mEx.length === 0) {
           const [adminRows] = await pool.query("SELECT id FROM user WHERE roleId = 1 OR roleId = 2 LIMIT 1");
           const adminId = adminRows.length > 0 ? adminRows[0].id : 1;
@@ -98,7 +118,7 @@ export async function syncAllUserAccounts() {
           console.log(`✅ Linked member record for ${u.email}`);
         } else {
           await pool.query(
-            `UPDATE member SET status = 'ACTIVE', password = ? WHERE email = ? OR userId = ?`,
+            `UPDATE member SET status = 'ACTIVE', password = ? WHERE LOWER(email) = LOWER(?) OR userId = ?`,
             [defaultHash, u.email, userId]
           );
         }
