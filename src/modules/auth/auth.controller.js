@@ -355,41 +355,14 @@ export const resetPassword = async (req, res, next) => {
   }
 };
 
+import { syncAllUserAccounts } from "../../server.js";
+
 export const fixLoginsController = async (req, res, next) => {
   try {
-    const defaultHash = await bcrypt.hash("123456", 10);
-    const [superadmins] = await pool.query("SELECT id FROM user WHERE email = 'superadmin@gmail.com' OR roleId = 1 LIMIT 1");
-    if (superadmins.length === 0) {
-      await pool.query(
-        `INSERT INTO user (fullName, email, password, roleId, status, visiblePassword) 
-         VALUES ('Super Admin', 'superadmin@gmail.com', ?, 1, 'Active', '123456')`,
-        [defaultHash]
-      );
-    } else {
-      await pool.query(
-        `UPDATE user SET password = ?, status = 'Active', visiblePassword = '123456' WHERE email = 'superadmin@gmail.com' OR roleId = 1`,
-        [defaultHash]
-      );
-    }
-
-    // Auto-sync all Admin and SubAdmin accounts to default password 123456 and status Active
-    await pool.query(
-      `UPDATE user SET password = ?, status = 'Active', visiblePassword = '123456' WHERE roleId IN (1, 2, 3) OR email LIKE '%admin%'`,
-      [defaultHash]
-    );
-
-    // Activate all remaining users (Trainers, Receptionists, Housekeeping, Sales Agents, Members)
-    await pool.query(
-      `UPDATE user SET status = 'Active' WHERE status IS NULL OR status != 'Active'`
-    );
-    await pool.query(
-      `UPDATE user SET password = ?, visiblePassword = '123456' WHERE password IS NULL OR password = ''`,
-      [defaultHash]
-    );
-
+    await syncAllUserAccounts();
     return res.json({
       success: true,
-      message: "ALL user accounts (SuperAdmin, Admin, Subadmin, Trainers, Staff, Members) synced and activated successfully!"
+      message: "ALL user accounts (SuperAdmin, Admin, Subadmin, Trainers, Staff, Members) synced and activated successfully with password 123456!"
     });
   } catch (err) {
     next(err);

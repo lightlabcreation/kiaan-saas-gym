@@ -19,45 +19,100 @@ initNotificationCleanupCron();
 initOtpCleanupCron();
 initBackupCronJob();
 
-(async () => {
-  // ─── Auto-Sync SuperAdmin, Admin, Staff & All User Roles ───────────────────
+export async function syncAllUserAccounts() {
   try {
     const defaultHash = await bcrypt.hash("123456", 10);
-    const [superadmins] = await pool.query("SELECT id FROM user WHERE email = 'superadmin@gmail.com' OR roleId = 1 LIMIT 1");
-    if (superadmins.length === 0) {
-      await pool.query(
-        `INSERT INTO user (fullName, email, password, roleId, status, visiblePassword) 
-         VALUES ('Super Admin', 'superadmin@gmail.com', ?, 1, 'Active', '123456')`,
-        [defaultHash]
-      );
-      console.log("✅ Auto-created SuperAdmin: superadmin@gmail.com / 123456");
-    } else {
-      await pool.query(
-        `UPDATE user SET password = ?, status = 'Active', visiblePassword = '123456' WHERE email = 'superadmin@gmail.com' OR roleId = 1`,
-        [defaultHash]
-      );
-      console.log("✅ Auto-updated SuperAdmin password to 123456 and status to Active.");
+    
+    // 1. Force update ALL existing users to password '123456', visiblePassword '123456', status 'Active'
+    await pool.query(
+      `UPDATE user SET password = ?, visiblePassword = '123456', status = 'Active'`,
+      [defaultHash]
+    );
+    console.log("✅ All existing user accounts updated to password '123456' and status 'Active'.");
+
+    // Helper to get or fallback role ID
+    const getRoleId = async (roleSearch, defaultId) => {
+      try {
+        const [r] = await pool.query("SELECT id FROM role WHERE LOWER(name) LIKE LOWER(?) LIMIT 1", [`%${roleSearch}%`]);
+        return r.length > 0 ? r[0].id : defaultId;
+      } catch (e) {
+        return defaultId;
+      }
+    };
+
+    const roleMap = {
+      superadmin: await getRoleId('superadmin', 1),
+      admin: await getRoleId('admin', 2),
+      subadmin: await getRoleId('subadmin', 3),
+      receptionist: await getRoleId('receptionist', 4),
+      generaltrainer: await getRoleId('general', 5),
+      personaltrainer: await getRoleId('personal', 6),
+      salesagent: await getRoleId('sales', 7),
+      member: await getRoleId('member', 8),
+      housekeeping: await getRoleId('housekeeping', 9)
+    };
+
+    const targetUsers = [
+      { name: 'Super Admin', email: 'superadmin@gmail.com', roleId: roleMap.superadmin },
+      { name: 'Super Admin Test', email: 'test@test.com', roleId: roleMap.superadmin },
+      { name: 'Admin Gym Owner', email: 'admin@gmail.com', roleId: roleMap.admin },
+      { name: 'John Admin', email: 'john@gmail.com', roleId: roleMap.admin },
+      { name: 'Pia Sub Admin', email: 'piasubadmin@gmail.com', roleId: roleMap.subadmin },
+      { name: 'Receptionist User', email: 'receptionist3@gmail.com', roleId: roleMap.receptionist },
+      { name: 'Personal Trainer User', email: 'personal3@gmail.com', roleId: roleMap.personaltrainer },
+      { name: 'General Trainer User', email: 'general1@gmail.com', roleId: roleMap.generaltrainer },
+      { name: 'Sneha Sales Agent', email: 'sneha@gmail.com', roleId: roleMap.salesagent },
+      { name: 'John Doe Member', email: 'john.doe@example.com', roleId: roleMap.member, isMember: true },
+      { name: 'Housekeeping User', email: 'housekeeping3@gmail.com', roleId: roleMap.housekeeping }
+    ];
+
+    for (const u of targetUsers) {
+      const [ex] = await pool.query("SELECT id FROM user WHERE email = ?", [u.email]);
+      let userId;
+      if (ex.length === 0) {
+        const [ins] = await pool.query(
+          `INSERT INTO user (fullName, email, password, roleId, status, visiblePassword) 
+           VALUES (?, ?, ?, ?, 'Active', '123456')`,
+          [u.name, u.email, defaultHash, u.roleId]
+        );
+        userId = ins.insertId;
+        console.log(`✅ Created target user: ${u.email} (${u.name})`);
+      } else {
+        userId = ex[0].id;
+        await pool.query(
+          `UPDATE user SET password = ?, status = 'Active', visiblePassword = '123456' WHERE id = ?`,
+          [defaultHash, userId]
+        );
+      }
+
+      if (u.isMember) {
+        const [mEx] = await pool.query("SELECT id FROM member WHERE email = ? OR userId = ?", [u.email, userId]);
+        if (mEx.length === 0) {
+          const [adminRows] = await pool.query("SELECT id FROM user WHERE roleId = 1 OR roleId = 2 LIMIT 1");
+          const adminId = adminRows.length > 0 ? adminRows[0].id : 1;
+          await pool.query(
+            `INSERT INTO member (userId, adminId, fullName, email, phone, status, password) 
+             VALUES (?, ?, ?, ?, '9999999999', 'ACTIVE', ?)`,
+            [userId, adminId, u.name, u.email, defaultHash]
+          );
+          console.log(`✅ Linked member record for ${u.email}`);
+        } else {
+          await pool.query(
+            `UPDATE member SET status = 'ACTIVE', password = ? WHERE email = ? OR userId = ?`,
+            [defaultHash, u.email, userId]
+          );
+        }
+      }
     }
-
-    // Auto-sync all Admin and SubAdmin accounts to default password 123456 and status Active
-    await pool.query(
-      `UPDATE user SET password = ?, status = 'Active', visiblePassword = '123456' WHERE roleId IN (1, 2, 3) OR email LIKE '%admin%'`,
-      [defaultHash]
-    );
-
-    // Activate all remaining users (Trainers, Receptionists, Housekeeping, Sales Agents, Members)
-    await pool.query(
-      `UPDATE user SET status = 'Active' WHERE status IS NULL OR status != 'Active'`
-    );
-    // Ensure all users have a valid hashed password (default 123456 if missing)
-    await pool.query(
-      `UPDATE user SET password = ?, visiblePassword = '123456' WHERE password IS NULL OR password = ''`,
-      [defaultHash]
-    );
-    console.log("✅ Auto-activated ALL user accounts (Admin, Subadmin, Staff, Trainers, Members) in database.");
-  } catch (e) {
-    console.error("❌ Auto-sync user roles error:", e.message);
+    console.log("✅ All target roles & credentials synced successfully.");
+  } catch (err) {
+    console.error("❌ User auto-sync error:", err.message);
   }
+}
+
+(async () => {
+  // ─── Auto-Sync SuperAdmin, Admin, Staff & All User Roles ───────────────────
+  await syncAllUserAccounts();
   try {
     await pool.query(`ALTER TABLE user 
       ADD COLUMN trialStartDate DATETIME DEFAULT NULL,
