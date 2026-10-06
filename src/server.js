@@ -225,6 +225,21 @@ export async function syncAllUserAccounts() {
       // Initialize Socket.io
       initSocket(server);
 
+      // Graceful shutdown on SIGTERM and SIGINT
+      const handleShutdown = (signal) => {
+        console.log(`Received ${signal}. Gracefully closing HTTP server...`);
+        server.close(() => {
+          console.log("HTTP server closed cleanly.");
+          process.exit(0);
+        });
+        setTimeout(() => {
+          process.exit(0);
+        }, 5000);
+      };
+
+      process.on("SIGTERM", () => handleShutdown("SIGTERM"));
+      process.on("SIGINT", () => handleShutdown("SIGINT"));
+
       // Auto restore active WhatsApp sessions
       import("./modules/integrations/whatsapp.service.js")
         .then(({ WhatsAppService }) => WhatsAppService.autoRestoreSessions())
