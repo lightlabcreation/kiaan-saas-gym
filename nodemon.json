@@ -1,6 +1,6 @@
 {
-  "watch": ["src"],
-  "ext": "js,json",
+  "watch": ["src", ".env"],
+  "ext": "js,json,env",
   "ignore": ["scratch/*", "logs/*", "uploads/*", "node_modules/*", ".git/*"],
   "delay": 1000
 }

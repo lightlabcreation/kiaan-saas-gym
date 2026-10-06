@@ -12,7 +12,7 @@ import { initSocket } from "./config/socket.js";
 
 import { pool } from "./config/db.js";
 
-// Initialize scheduled tasks (local gymsaas_db connected)
+// Initialize scheduled tasks (Connected to local MySQL database)
 initTrialCronJobs();
 initNotificationQueueCron();
 initNotificationCleanupCron();

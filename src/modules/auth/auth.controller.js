@@ -308,6 +308,7 @@ export const getAdminDashboard = async (req, res, next) => {
 export const forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
+    console.log("🔑 FORGOT PASSWORD REQUEST RECEIVED FOR:", email);
     const result = await forgotPasswordService(email, req.ip, req.headers['user-agent']);
     res.json(result);
   } catch (err) {

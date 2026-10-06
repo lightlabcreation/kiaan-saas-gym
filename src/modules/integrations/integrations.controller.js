@@ -348,15 +348,44 @@ export const getWhatsAppStatus = async (req, res) => {
 export const connectWhatsApp = async (req, res) => {
   try {
     const tenantId = req.user.id;
-    const { number, phoneNumber } = req.body;
-    const targetNumber = number || phoneNumber;
+    let { number, phoneNumber, phone, mobile } = req.body || {};
+    let targetNumber = (number || phoneNumber || phone || mobile || "").trim();
+
+    // If not provided in body, fallback to saved number in tenantintegrationsettings or users table
     if (!targetNumber) {
-      return res.status(400).json({ success: false, message: "WhatsApp phone number is required" });
+      const [rows] = await pool.query(
+        "SELECT whatsappNumber FROM tenantintegrationsettings WHERE tenantId = ?",
+        [tenantId]
+      );
+      if (rows.length > 0 && rows[0].whatsappNumber) {
+        targetNumber = rows[0].whatsappNumber;
+      } else {
+        const [userRows] = await pool.query(
+          "SELECT phone FROM users WHERE id = ?",
+          [tenantId]
+        );
+        if (userRows.length > 0 && userRows[0].phone) {
+          targetNumber = userRows[0].phone;
+        }
+      }
     }
+
+    if (!targetNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "WhatsApp phone number is required. Please provide a valid mobile number with country code (e.g., +919876543210)."
+      });
+    }
+
     const data = await WhatsAppService.initiateConnect(tenantId, targetNumber);
-    return res.status(200).json({ success: true, message: "WhatsApp connection initiated. Scan QR code.", data });
+    return res.status(200).json({
+      success: true,
+      message: "WhatsApp connection initiated. Scan QR code.",
+      data
+    });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    console.error("WhatsApp connect error:", err);
+    res.status(400).json({ success: false, message: err.message || "Failed to initiate WhatsApp connection" });
   }
 };
 

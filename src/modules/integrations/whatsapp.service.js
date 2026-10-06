@@ -28,7 +28,9 @@ export const normalizePhoneNumber = (phone) => {
   if (!phone) return null;
   let digits = String(phone).replace(/\D/g, "");
   if (!digits) return null;
-  if (digits.length === 10) {
+  if (digits.startsWith("0") && digits.length === 11) {
+    digits = "91" + digits.slice(1);
+  } else if (digits.length === 10) {
     digits = "91" + digits;
   }
   if (digits.length < 10 || digits.length > 15) return null;

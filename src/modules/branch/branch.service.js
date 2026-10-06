@@ -15,8 +15,8 @@ export const createBranchService = async ({ name, address, phone, status, adminI
 
     let maxBranches = 1; // Default Free Trial & Starter: 1 Branch
     const nameLower = planName.toLowerCase();
-    if (nameLower.includes('growth') || planName.includes('1299')) maxBranches = 2;
-    else if (nameLower.includes('pro') || planName.includes('1499')) maxBranches = 5;
+    if (nameLower.includes('growth') || nameLower.includes('standard') || planName.includes('900') || planName.includes('1299')) maxBranches = 2;
+    else if (nameLower.includes('pro') || planName.includes('1200') || planName.includes('1499')) maxBranches = 6;
     else if (nameLower.includes('custom') || nameLower.includes('enterprise')) maxBranches = 99999;
 
     const [branchCount] = await pool.query("SELECT COUNT(*) as currentCount FROM branch WHERE adminId = ?", [finalAdminId]);

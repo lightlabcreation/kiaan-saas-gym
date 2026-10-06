@@ -1606,6 +1606,7 @@ export const forgotPasswordService = async (email, ip, userAgent) => {
 
     // 2. Generate OTP
     const rawOtp = crypto.randomInt(100000, 999999).toString();
+    console.log(`🔑 [OTP GENERATED] Email: ${email} | OTP: ${rawOtp}`);
     const hashedOtp = await bcrypt.hash(rawOtp, 10);
     const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes
 
@@ -1650,6 +1651,7 @@ export const forgotPasswordService = async (email, ip, userAgent) => {
 };
 
 export const verifyOtpService = async (email, rawOtp) => {
+  console.log(`🔑 [VERIFYING OTP ATTEMPT] Email: ${email} | Entered OTP: ${rawOtp}`);
   const [otps] = await pool.query(
     "SELECT * FROM password_reset_otp WHERE email = ? AND isUsed = FALSE ORDER BY id DESC LIMIT 1",
     [email]

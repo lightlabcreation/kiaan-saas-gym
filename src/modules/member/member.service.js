@@ -48,9 +48,9 @@ export const createMemberService = async (data) => {
 
     let maxMembers = 50; // Default Free Trial: 50 members
     const nameLower = planName.toLowerCase();
-    if (nameLower.includes('starter') || planName.includes('999')) maxMembers = 300;
-    else if (nameLower.includes('growth') || planName.includes('1299')) maxMembers = 750;
-    else if (nameLower.includes('pro') || planName.includes('1499')) maxMembers = 1500;
+    if (nameLower.includes('starter') || planName.includes('700') || planName.includes('999')) maxMembers = 50;
+    else if (nameLower.includes('growth') || nameLower.includes('standard') || planName.includes('900') || planName.includes('1299')) maxMembers = 100;
+    else if (nameLower.includes('pro') || planName.includes('1200') || planName.includes('1499')) maxMembers = 150;
     else if (nameLower.includes('custom') || nameLower.includes('enterprise')) maxMembers = 999999;
 
     const [memberCount] = await pool.query("SELECT COUNT(*) as currentCount FROM member WHERE adminId = ?", [adminId]);
