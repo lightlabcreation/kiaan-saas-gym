@@ -37,17 +37,68 @@ export const normalizePhoneNumber = (phone) => {
   return "+" + digits;
 };
 
+let columnsEnsured = false;
+export async function ensureIntegrationColumns() {
+  if (columnsEnsured) return;
+  try {
+    const queries = [
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappNumber VARCHAR(50) DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappStatus VARCHAR(50) DEFAULT 'DISCONNECTED'",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappQr LONGTEXT DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappConnectedAt DATETIME DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappLastError TEXT DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpHost VARCHAR(255) DEFAULT 'smtp.gmail.com'",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpPort INT DEFAULT 587",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpUsername VARCHAR(255) DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpPassword VARCHAR(500) DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpEncryption VARCHAR(50) DEFAULT 'STARTTLS'",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpEnabled TINYINT(1) DEFAULT 0",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpProvider VARCHAR(50) DEFAULT 'gmail'",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN upiQrCode VARCHAR(500) DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN upiId VARCHAR(255) DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN upiAccountHolder VARCHAR(255) DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN paymentInstructions TEXT DEFAULT NULL"
+    ];
+    for (const q of queries) {
+      try {
+        await pool.query(q);
+      } catch (_) {}
+    }
+    columnsEnsured = true;
+  } catch (e) {
+    console.error("Error ensuring columns:", e.message);
+  }
+}
+
 export const WhatsAppService = {
   /**
    * Get WhatsApp connection details for a tenant
    */
   getStatus: async (tenantId) => {
+    await ensureIntegrationColumns();
     await pool.query("INSERT IGNORE INTO tenantintegrationsettings (tenantId) VALUES (?)", [tenantId]);
-    const [rows] = await pool.query(
-      `SELECT whatsappNumber, whatsappStatus, whatsappQr, whatsappConnectedAt, whatsappEnabled, whatsappLastError 
-       FROM tenantintegrationsettings WHERE tenantId = ?`,
-      [tenantId]
-    );
+    let rows = [];
+    try {
+      const [r] = await pool.query(
+        `SELECT whatsappNumber, whatsappStatus, whatsappQr, whatsappConnectedAt, whatsappEnabled, whatsappLastError 
+         FROM tenantintegrationsettings WHERE tenantId = ?`,
+        [tenantId]
+      );
+      rows = r;
+    } catch (dbErr) {
+      if (dbErr.code === 'ER_BAD_FIELD_ERROR' || dbErr.message?.includes('Unknown column')) {
+        columnsEnsured = false;
+        await ensureIntegrationColumns();
+        const [r] = await pool.query(
+          `SELECT whatsappNumber, whatsappStatus, whatsappQr, whatsappConnectedAt, whatsappEnabled, whatsappLastError 
+           FROM tenantintegrationsettings WHERE tenantId = ?`,
+          [tenantId]
+        );
+        rows = r;
+      } else {
+        throw dbErr;
+      }
+    }
     if (rows.length === 0) {
       return {
         status: "DISCONNECTED",
@@ -73,6 +124,7 @@ export const WhatsAppService = {
    * Initiate authentic Baileys WhatsApp Web session connection & QR generation
    */
   initiateConnect: async (tenantId, rawPhone) => {
+    await ensureIntegrationColumns();
     const normalized = normalizePhoneNumber(rawPhone);
     if (!normalized) {
       throw new Error("Invalid phone number format. Please provide a valid mobile number with country code (e.g. +919876543210).");
@@ -89,12 +141,27 @@ export const WhatsAppService = {
     }
 
     // Set initial status in DB
-    await pool.query(
-      `UPDATE tenantintegrationsettings 
-       SET whatsappNumber = ?, whatsappStatus = 'CONNECTING', whatsappQr = NULL, whatsappLastError = NULL 
-       WHERE tenantId = ?`,
-      [normalized, tenantId]
-    );
+    try {
+      await pool.query(
+        `UPDATE tenantintegrationsettings 
+         SET whatsappNumber = ?, whatsappStatus = 'CONNECTING', whatsappQr = NULL, whatsappLastError = NULL 
+         WHERE tenantId = ?`,
+        [normalized, tenantId]
+      );
+    } catch (updateErr) {
+      if (updateErr.code === 'ER_BAD_FIELD_ERROR' || updateErr.message?.includes('Unknown column')) {
+        columnsEnsured = false;
+        await ensureIntegrationColumns();
+        await pool.query(
+          `UPDATE tenantintegrationsettings 
+           SET whatsappNumber = ?, whatsappStatus = 'CONNECTING', whatsappQr = NULL, whatsappLastError = NULL 
+           WHERE tenantId = ?`,
+          [normalized, tenantId]
+        );
+      } else {
+        throw updateErr;
+      }
+    }
 
     // Session directory
     const sessionDir = path.join(process.cwd(), "wa_sessions", `tenant_${tenantId}`);

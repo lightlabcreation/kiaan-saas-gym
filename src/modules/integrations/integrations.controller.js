@@ -2,17 +2,19 @@ import { pool } from "../../config/db.js";
 import { encrypt } from "../../utils/encryption.js";
 import { BrevoCredentialResolver, PaymentCredentialResolver, WhatsAppCredentialResolver, SmtpCredentialResolver } from "../../utils/credentialResolvers.js";
 import { uploadToCloudinary } from "../../config/cloudinary.js";
+import { ensureIntegrationColumns } from "./whatsapp.service.js";
 
 // Fetch integration statuses (Masked credentials)
 export const getIntegrations = async (req, res) => {
   try {
     const tenantId = req.user.id;
+    await ensureIntegrationColumns();
     
     // Auto-create setting row if doesn't exist
     await pool.query("INSERT IGNORE INTO tenantintegrationsettings (tenantId) VALUES (?)", [tenantId]);
 
     const [rows] = await pool.query("SELECT * FROM tenantintegrationsettings WHERE tenantId = ?", [tenantId]);
-    const settings = rows[0];
+    const settings = rows[0] || {};
 
     return res.status(200).json({
       success: true,
