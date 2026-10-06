@@ -41,12 +41,31 @@ let columnsEnsured = false;
 export async function ensureIntegrationColumns() {
   if (columnsEnsured) return;
   try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tenantintegrationsettings (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        tenantId INT NOT NULL UNIQUE,
+        paymentGatewayEnabled BOOLEAN DEFAULT false,
+        emailEnabled BOOLEAN DEFAULT false,
+        whatsappEnabled BOOLEAN DEFAULT false,
+        isVerified TINYINT(1) DEFAULT 0,
+        lastVerifiedAt DATETIME NULL,
+        lastTestStatus VARCHAR(50) NULL,
+        lastTestMessage TEXT NULL,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
     const queries = [
       "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappNumber VARCHAR(50) DEFAULT NULL",
       "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappStatus VARCHAR(50) DEFAULT 'DISCONNECTED'",
       "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappQr LONGTEXT DEFAULT NULL",
       "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappConnectedAt DATETIME DEFAULT NULL",
       "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappLastError TEXT DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappAccessToken VARCHAR(500) DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappPhoneNumberId VARCHAR(100) DEFAULT NULL",
+      "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappBusinessAccountId VARCHAR(100) DEFAULT NULL",
       "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpHost VARCHAR(255) DEFAULT 'smtp.gmail.com'",
       "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpPort INT DEFAULT 587",
       "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpUsername VARCHAR(255) DEFAULT NULL",
@@ -336,6 +355,7 @@ export const WhatsAppService = {
     }
 
     try {
+      await ensureIntegrationColumns();
       const [rows] = await pool.query(
         "SELECT whatsappStatus, whatsappEnabled, whatsappAccessToken, whatsappPhoneNumberId, whatsappNumber FROM tenantintegrationsettings WHERE tenantId = ?",
         [tenantId]
@@ -431,6 +451,7 @@ export const WhatsAppService = {
    */
   autoRestoreSessions: async () => {
     try {
+      await ensureIntegrationColumns();
       const [rows] = await pool.query(
         "SELECT tenantId, whatsappNumber FROM tenantintegrationsettings WHERE whatsappStatus = 'CONNECTED' AND whatsappNumber IS NOT NULL"
       );

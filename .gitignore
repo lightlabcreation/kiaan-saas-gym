@@ -1,3 +1,7 @@
 node_modules
 .env
 .env.*
+wa_sessions
+wa_sessions/**
+*.log
+scratch/test_live_*.js

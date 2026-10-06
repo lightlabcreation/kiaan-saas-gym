@@ -49,8 +49,30 @@ async function runStartupMigrations() {
     // Column already exists — safe to ignore
   }
 
-  // Alter tenantintegrationsettings table for WhatsApp & SMTP fields
+  // Ensure tenantintegrationsettings table exists & alter for UPI, WhatsApp, SMTP fields
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tenantintegrationsettings (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        tenantId INT NOT NULL UNIQUE,
+        paymentGatewayEnabled BOOLEAN DEFAULT false,
+        emailEnabled BOOLEAN DEFAULT false,
+        whatsappEnabled BOOLEAN DEFAULT false,
+        isVerified TINYINT(1) DEFAULT 0,
+        lastVerifiedAt DATETIME NULL,
+        lastTestStatus VARCHAR(50) NULL,
+        lastTestMessage TEXT NULL,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+  } catch (_) {}
+
   const integrationCols = [
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN upiQrCode VARCHAR(500) NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN upiId VARCHAR(255) NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN upiAccountHolder VARCHAR(255) NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN paymentInstructions TEXT NULL",
     "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpProvider VARCHAR(50) DEFAULT 'gmail'",
     "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpHost VARCHAR(255) DEFAULT 'smtp.gmail.com'",
     "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpPort INT DEFAULT 587",
@@ -62,7 +84,10 @@ async function runStartupMigrations() {
     "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappStatus VARCHAR(50) DEFAULT 'DISCONNECTED'",
     "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappQr LONGTEXT NULL",
     "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappConnectedAt DATETIME NULL",
-    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappLastError TEXT NULL"
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappLastError TEXT NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappAccessToken VARCHAR(500) NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappPhoneNumberId VARCHAR(100) NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappBusinessAccountId VARCHAR(100) NULL"
   ];
 
   for (const sql of integrationCols) {

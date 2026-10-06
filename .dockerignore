@@ -1,0 +1,8 @@
+node_modules
+.git
+.github
+wa_sessions
+*.log
+*.zip
+scratch
+tests

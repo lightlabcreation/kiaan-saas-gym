@@ -117,6 +117,8 @@ export const updateBrevo = async (req, res) => {
 export const updateSmtp = async (req, res) => {
   try {
     const tenantId = req.user.id;
+    await ensureIntegrationColumns();
+    await pool.query("INSERT IGNORE INTO tenantintegrationsettings (tenantId) VALUES (?)", [tenantId]);
     const { smtpHost, smtpPort, smtpUsername, smtpPassword, smtpEncryption, smtpEnabled, smtpProvider, senderEmail, senderName, action } = req.body;
 
     if (action === "remove") {
@@ -167,6 +169,8 @@ export const updateSmtp = async (req, res) => {
 export const updateAdminUPI = async (req, res) => {
   try {
     const tenantId = req.user.id;
+    await ensureIntegrationColumns();
+    await pool.query("INSERT IGNORE INTO tenantintegrationsettings (tenantId) VALUES (?)", [tenantId]);
     let { upiId, upiAccountHolder, paymentInstructions } = req.body;
     let upiQrCode = null;
 
