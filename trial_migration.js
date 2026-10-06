@@ -62,14 +62,36 @@ async function runMigration() {
         ADD COLUMN upiQrCode VARCHAR(500) DEFAULT NULL,
         ADD COLUMN upiId VARCHAR(255) DEFAULT NULL,
         ADD COLUMN upiAccountHolder VARCHAR(255) DEFAULT NULL,
-        ADD COLUMN paymentInstructions TEXT DEFAULT NULL;
+        ADD COLUMN paymentInstructions TEXT DEFAULT NULL,
+        ADD COLUMN whatsappNumber VARCHAR(50) DEFAULT NULL,
+        ADD COLUMN whatsappStatus VARCHAR(50) DEFAULT 'DISCONNECTED',
+        ADD COLUMN whatsappQr LONGTEXT DEFAULT NULL,
+        ADD COLUMN whatsappConnectedAt DATETIME DEFAULT NULL,
+        ADD COLUMN whatsappLastError TEXT DEFAULT NULL,
+        ADD COLUMN smtpHost VARCHAR(255) DEFAULT 'smtp.gmail.com',
+        ADD COLUMN smtpPort INT DEFAULT 587,
+        ADD COLUMN smtpUsername VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN smtpPassword VARCHAR(500) DEFAULT NULL,
+        ADD COLUMN smtpEncryption VARCHAR(50) DEFAULT 'STARTTLS',
+        ADD COLUMN smtpEnabled TINYINT(1) DEFAULT 0,
+        ADD COLUMN smtpProvider VARCHAR(50) DEFAULT 'gmail';
       `);
-      console.log("Added upi columns to tenantintegrationsettings.");
+      console.log("Added upi, whatsapp & smtp columns to tenantintegrationsettings.");
     } catch (e) {
       if (e.code === 'ER_DUP_FIELDNAME') {
-        console.log("UPI columns already exist in tenantintegrationsettings.");
+        console.log("Columns already exist in tenantintegrationsettings.");
       } else {
-        throw e;
+        // Individual fallbacks
+        const cols = [
+          "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappNumber VARCHAR(50) NULL",
+          "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappStatus VARCHAR(50) DEFAULT 'DISCONNECTED'",
+          "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappQr LONGTEXT NULL",
+          "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappConnectedAt DATETIME NULL",
+          "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappLastError TEXT NULL"
+        ];
+        for (const col of cols) {
+          try { await pool.query(col); } catch (_) {}
+        }
       }
     }
 

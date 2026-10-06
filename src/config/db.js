@@ -49,11 +49,28 @@ async function runStartupMigrations() {
     // Column already exists — safe to ignore
   }
 
-  // Alter tenantintegrationsettings table for smtpProvider
-  try {
-    await pool.query("ALTER TABLE tenantintegrationsettings ADD COLUMN smtpProvider VARCHAR(50) DEFAULT 'gmail'");
-  } catch (e) {
-    // Column already exists — safe to ignore
+  // Alter tenantintegrationsettings table for WhatsApp & SMTP fields
+  const integrationCols = [
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpProvider VARCHAR(50) DEFAULT 'gmail'",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpHost VARCHAR(255) DEFAULT 'smtp.gmail.com'",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpPort INT DEFAULT 587",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpUsername VARCHAR(255) NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpPassword VARCHAR(500) NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpEncryption VARCHAR(50) DEFAULT 'STARTTLS'",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN smtpEnabled TINYINT(1) DEFAULT 0",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappNumber VARCHAR(50) NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappStatus VARCHAR(50) DEFAULT 'DISCONNECTED'",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappQr LONGTEXT NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappConnectedAt DATETIME NULL",
+    "ALTER TABLE tenantintegrationsettings ADD COLUMN whatsappLastError TEXT NULL"
+  ];
+
+  for (const sql of integrationCols) {
+    try {
+      await pool.query(sql);
+    } catch (e) {
+      // Column already exists — safe to ignore
+    }
   }
 
   // Alter workout tables
